@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api indicators</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select, input, button {
+    background: #0e1117;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  input[type=number] { width: 70px; }
+  button {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-left: auto; font-size: 12px; color: var(--muted); }
+  #status.error { color: var(--down); }
+
+  main { padding: 16px 20px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .panel-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .panel-value { font-size: 13px; font-weight: 600; }
+  .panel-value.up { color: var(--up); }
+  .panel-value.down { color: var(--down); }
+  .legend-inline {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    gap: 12px;
+  }
+  .legend-inline .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 4px;
+  }
+  #price-chart { height: 400px; }
+  #rsi-chart { height: 160px; }
+  #macd-chart { height: 160px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html" class="active">Indicators</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <label>Coin
+    <select id="coin">
+      <option value="bitcoin">BTC</option>
+      <option value="ethereum">ETH</option>
+      <option value="ripple" selected>XRP</option>
+      <option value="litecoin">LTC</option>
+      <option value="dogecoin">DOGE</option>
+      <option value="solana">SOL</option>
+    </select>
+  </label>
+  <label>Interval
+    <select id="interval">
+      <option value="1h">1h</option>
+      <option value="4h">4h</option>
+      <option value="1d" selected>1d</option>
+      <option value="1w">1w</option>
+    </select>
+  </label>
+  <label>Candles
+    <input type="number" id="limit" value="200" min="60" max="1000">
+  </label>
+  <button id="refresh">Refresh</button>
+  <label><input type="checkbox" id="auto"> Auto-refresh (60s)</label>
+  <span id="status"></span>
+</header>
+
+<main>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Price &mdash; EMA 20 / EMA 50</span>
+      <div class="legend-inline">
+        <span><span class="swatch" style="background:#e6b400"></span>EMA 20</span>
+        <span><span class="swatch" style="background:#4f8cff"></span>EMA 50</span>
+      </div>
+    </div>
+    <div id="price-chart"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">RSI (14)</span>
+      <span class="panel-value" id="rsi-value">—</span>
+    </div>
+    <div id="rsi-chart"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">MACD (12, 26, 9)</span>
+      <div class="legend-inline">
+        <span><span class="swatch" style="background:#4f8cff"></span>MACD</span>
+        <span><span class="swatch" style="background:#e6b400"></span>Signal</span>
+      </div>
+    </div>
+    <div id="macd-chart"></div>
+  </div>
+</main>
+
+<script>
+const API_BASE = "";
+
+// ---------- indicator math ----------
+function ema(values, period) {
+  const k = 2 / (period + 1);
+  const out = new Array(values.length).fill(null);
+  let prev;
+  for (let i = 0; i < values.length; i++) {
+    if (i < period - 1) continue;
+    if (i === period - 1) {
+      prev = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      out[i] = prev;
+      continue;
+    }
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+function rsi(values, period = 14) {
+  const out = new Array(values.length).fill(null);
+  if (values.length < period + 1) return out;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = values[i] - values[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period, avgLoss = losses / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < values.length; i++) {
+    const diff = values[i] - values[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
+
+function macd(values, fast = 12, slow = 26, signalPeriod = 9) {
+  const emaFast = ema(values, fast);
+  const emaSlow = ema(values, slow);
+  const macdLine = values.map((_, i) =>
+    emaFast[i] != null && emaSlow[i] != null ? emaFast[i] - emaSlow[i] : null
+  );
+  const validStart = macdLine.findIndex(v => v != null);
+  const signalTail = validStart === -1 ? [] : ema(macdLine.slice(validStart), signalPeriod);
+  const signalLine = new Array(Math.max(validStart, 0)).fill(null).concat(signalTail);
+  const histogram = macdLine.map((v, i) =>
+    v != null && signalLine[i] != null ? v - signalLine[i] : null
+  );
+  return { macdLine, signalLine, histogram };
+}
+
+function toLineData(times, values) {
+  return times
+    .map((t, i) => (values[i] != null ? { time: t, value: values[i] } : null))
+    .filter(Boolean);
+}
+
+// ---------- chart setup ----------
+const chartTheme = {
+  layout: { background: { color: "#0e1117" }, textColor: "#8b93a1" },
+  grid: { vertLines: { color: "#1c212b" }, horzLines: { color: "#1c212b" } },
+  timeScale: { timeVisible: true, secondsVisible: false },
+  rightPriceScale: { borderColor: "#2a2f3a" },
+};
+
+const priceChart = LightweightCharts.createChart(document.getElementById("price-chart"), chartTheme);
+const candleSeries = priceChart.addCandlestickSeries({
+  upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+  wickUpColor: "#26a69a", wickDownColor: "#ef5350",
+});
+const ema20Series = priceChart.addLineSeries({ color: "#e6b400", lineWidth: 2 });
+const ema50Series = priceChart.addLineSeries({ color: "#4f8cff", lineWidth: 2 });
+
+const rsiChart = LightweightCharts.createChart(document.getElementById("rsi-chart"), chartTheme);
+const rsiSeries = rsiChart.addLineSeries({ color: "#c586c0", lineWidth: 2 });
+rsiSeries.createPriceLine({ price: 70, color: "#ef5350", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "70" });
+rsiSeries.createPriceLine({ price: 30, color: "#26a69a", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "30" });
+
+const macdChart = LightweightCharts.createChart(document.getElementById("macd-chart"), chartTheme);
+const macdHistSeries = macdChart.addHistogramSeries({ priceFormat: { type: "price", precision: 4 } });
+const macdLineSeries = macdChart.addLineSeries({ color: "#4f8cff", lineWidth: 1.5 });
+const macdSignalSeries = macdChart.addLineSeries({ color: "#e6b400", lineWidth: 1.5 });
+
+const charts = [priceChart, rsiChart, macdChart];
+
+// keep the three time scales in sync
+let syncing = false;
+charts.forEach(chart => {
+  chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (syncing || !range) return;
+    syncing = true;
+    charts.forEach(c => { if (c !== chart) c.timeScale().setVisibleLogicalRange(range); });
+    syncing = false;
+  });
+});
+
+function resizeAll() {
+  priceChart.resize(document.getElementById("price-chart").clientWidth, 400);
+  rsiChart.resize(document.getElementById("rsi-chart").clientWidth, 160);
+  macdChart.resize(document.getElementById("macd-chart").clientWidth, 160);
+}
+window.addEventListener("resize", resizeAll);
+resizeAll();
+
+const statusEl = document.getElementById("status");
+const refreshBtn = document.getElementById("refresh");
+const rsiValueEl = document.getElementById("rsi-value");
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+async function loadIndicators() {
+  const coin = document.getElementById("coin").value;
+  const interval = document.getElementById("interval").value;
+  const limit = document.getElementById("limit").value;
+
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+
+  try {
+    const res = await fetch(`${API_BASE}/api/candles/${coin}?interval=${interval}&limit=${limit}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+
+    const candles = body.candles;
+    const times = candles.map(c => c.time);
+    const closes = candles.map(c => c.close);
+
+    candleSeries.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+
+    const ema20 = ema(closes, 20);
+    const ema50 = ema(closes, 50);
+    ema20Series.setData(toLineData(times, ema20));
+    ema50Series.setData(toLineData(times, ema50));
+
+    const rsiValues = rsi(closes, 14);
+    rsiSeries.setData(toLineData(times, rsiValues));
+    const lastRsi = [...rsiValues].reverse().find(v => v != null);
+    if (lastRsi != null) {
+      rsiValueEl.textContent = lastRsi.toFixed(1) + (lastRsi >= 70 ? " (overbought)" : lastRsi <= 30 ? " (oversold)" : "");
+      rsiValueEl.className = "panel-value " + (lastRsi >= 70 ? "down" : lastRsi <= 30 ? "up" : "");
+    }
+
+    const { macdLine, signalLine, histogram } = macd(closes, 12, 26, 9);
+    macdLineSeries.setData(toLineData(times, macdLine));
+    macdSignalSeries.setData(toLineData(times, signalLine));
+    macdHistSeries.setData(
+      times
+        .map((t, i) => histogram[i] != null
+          ? { time: t, value: histogram[i], color: histogram[i] >= 0 ? "#26a69a" : "#ef5350" }
+          : null)
+        .filter(Boolean)
+    );
+
+    charts.forEach(c => c.timeScale().fitContent());
+    setStatus("Updated " + new Date().toLocaleTimeString());
+  } catch (err) {
+    setStatus("Error: " + err.message, true);
+  } finally {
+    refreshBtn.disabled = false;
+  }
+}
+
+let autoTimer = null;
+refreshBtn.addEventListener("click", loadIndicators);
+document.getElementById("coin").addEventListener("change", loadIndicators);
+document.getElementById("interval").addEventListener("change", loadIndicators);
+document.getElementById("auto").addEventListener("change", (e) => {
+  if (e.target.checked) autoTimer = setInterval(loadIndicators, 60000);
+  else clearInterval(autoTimer);
+});
+
+loadIndicators();
+</script>
+
+</body>
+</html>

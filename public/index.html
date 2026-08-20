@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 16px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select, input, button {
+    background: #0e1117;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  input[type=number] { width: 70px; }
+  button {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #status.error { color: var(--down); }
+
+  main { padding: 20px; }
+
+  h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+
+  .combined-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+  .combined-chart { height: 340px; }
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--text); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .legend-item .pct.up { color: var(--up); }
+  .legend-item .pct.down { color: var(--down); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .card-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .card-header .coin-name { font-weight: 600; font-size: 14px; }
+  .card-header .coin-price { font-size: 13px; color: var(--muted); }
+  .card-header .coin-pct { font-size: 12px; font-weight: 600; }
+  .card-header .coin-pct.up { color: var(--up); }
+  .card-header .coin-pct.down { color: var(--down); }
+  .card-chart { height: 220px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/" class="active">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <label>Interval
+    <select id="interval">
+      <option value="1h">1h</option>
+      <option value="4h">4h</option>
+      <option value="1d" selected>1d</option>
+      <option value="1w">1w</option>
+    </select>
+  </label>
+  <label>Candles
+    <input type="number" id="limit" value="90" min="10" max="1000">
+  </label>
+  <button id="refresh">Refresh all</button>
+  <label><input type="checkbox" id="auto"> Auto-refresh (60s)</label>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section class="combined-panel">
+    <h2>All coins &mdash; % change (normalized)</h2>
+    <div class="combined-chart" id="combined-chart"></div>
+    <div class="legend" id="combined-legend"></div>
+  </section>
+
+  <section>
+    <h2>Individual</h2>
+    <div class="grid" id="coin-grid"></div>
+  </section>
+</main>
+
+<script>
+const API_BASE = "";
+const COINS = [
+  { id: "bitcoin",  label: "BTC",  color: "#f7931a" },
+  { id: "ethereum", label: "ETH",  color: "#8a92b2" },
+  { id: "ripple",   label: "XRP",  color: "#4f8cff" },
+  { id: "litecoin", label: "LTC",  color: "#bfbfbf" },
+  { id: "dogecoin", label: "DOGE", color: "#f0c419" },
+  { id: "solana",   label: "SOL",  color: "#9945ff" },
+];
+
+const chartTheme = {
+  layout: { background: { color: "#0e1117" }, textColor: "#8b93a1" },
+  grid: { vertLines: { color: "#1c212b" }, horzLines: { color: "#1c212b" } },
+  timeScale: { timeVisible: true, secondsVisible: false },
+  rightPriceScale: { borderColor: "#2a2f3a" },
+};
+
+const statusEl = document.getElementById("status");
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+// ---- Combined normalized chart ----
+const combinedChart = LightweightCharts.createChart(
+  document.getElementById("combined-chart"),
+  { ...chartTheme, rightPriceScale: { ...chartTheme.rightPriceScale, mode: LightweightCharts.PriceScaleMode.Normal } }
+);
+const combinedSeriesByCoin = {};
+const legendEl = document.getElementById("combined-legend");
+
+for (const coin of COINS) {
+  combinedSeriesByCoin[coin.id] = combinedChart.addLineSeries({
+    color: coin.color,
+    lineWidth: 2,
+    priceFormat: { type: "custom", formatter: v => v.toFixed(2) + "%" },
+  });
+  const item = document.createElement("span");
+  item.className = "legend-item";
+  item.id = `legend-${coin.id}`;
+  item.innerHTML = `<span class="swatch" style="background:${coin.color}"></span>${coin.label} <span class="pct">—</span>`;
+  legendEl.appendChild(item);
+}
+
+// ---- Individual cards ----
+const grid = document.getElementById("coin-grid");
+const cardChartsByCoin = {};
+const cardSeriesByCoin = {};
+
+for (const coin of COINS) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="card-header">
+      <span class="coin-name">${coin.label}</span>
+      <span class="coin-price" id="price-${coin.id}">—</span>
+      <span class="coin-pct" id="pct-${coin.id}">—</span>
+    </div>
+    <div class="card-chart" id="chart-${coin.id}"></div>
+  `;
+  grid.appendChild(card);
+
+  const c = LightweightCharts.createChart(document.getElementById(`chart-${coin.id}`), chartTheme);
+  const s = c.addCandlestickSeries({
+    upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+    wickUpColor: "#26a69a", wickDownColor: "#ef5350",
+  });
+  cardChartsByCoin[coin.id] = c;
+  cardSeriesByCoin[coin.id] = s;
+}
+
+function resizeAll() {
+  combinedChart.resize(document.getElementById("combined-chart").clientWidth, 340);
+  for (const coin of COINS) {
+    const el = document.getElementById(`chart-${coin.id}`);
+    cardChartsByCoin[coin.id].resize(el.clientWidth, el.clientHeight);
+  }
+}
+window.addEventListener("resize", resizeAll);
+
+async function fetchCandles(coinId, interval, limit) {
+  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=${interval}&limit=${limit}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
+  return body.candles;
+}
+
+async function loadAll() {
+  const interval = document.getElementById("interval").value;
+  const limit = document.getElementById("limit").value;
+  const refreshBtn = document.getElementById("refresh");
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+
+  const results = await Promise.allSettled(
+    COINS.map(coin => fetchCandles(coin.id, interval, limit))
+  );
+
+  let errors = [];
+
+  results.forEach((result, i) => {
+    const coin = COINS[i];
+    if (result.status === "rejected") {
+      errors.push(result.reason.message || String(result.reason));
+      return;
+    }
+    const candles = result.value;
+    if (!candles.length) return;
+
+    // Individual candlestick card
+    cardSeriesByCoin[coin.id].setData(
+      candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }))
+    );
+    cardChartsByCoin[coin.id].timeScale().fitContent();
+
+    const first = candles[0], last = candles[candles.length - 1];
+    const pct = ((last.close - first.open) / first.open) * 100;
+    document.getElementById(`price-${coin.id}`).textContent =
+      "$" + last.close.toLocaleString(undefined, { maximumFractionDigits: last.close < 10 ? 4 : 2 });
+    const pctEl = document.getElementById(`pct-${coin.id}`);
+    pctEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+    pctEl.className = "coin-pct " + (pct >= 0 ? "up" : "down");
+
+    // Combined normalized line (% change from first candle's open)
+    const base = first.open;
+    combinedSeriesByCoin[coin.id].setData(
+      candles.map(c => ({ time: c.time, value: ((c.close - base) / base) * 100 }))
+    );
+
+    const legendPct = document.querySelector(`#legend-${coin.id} .pct`);
+    legendPct.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+    legendPct.className = "pct " + (pct >= 0 ? "up" : "down");
+  });
+
+  combinedChart.timeScale().fitContent();
+  resizeAll();
+
+  if (errors.length) {
+    setStatus("Partial error: " + errors.join("; "), true);
+  } else {
+    setStatus("Updated " + new Date().toLocaleTimeString());
+  }
+  refreshBtn.disabled = false;
+}
+
+let autoTimer = null;
+document.getElementById("refresh").addEventListener("click", loadAll);
+document.getElementById("interval").addEventListener("change", loadAll);
+document.getElementById("auto").addEventListener("change", (e) => {
+  if (e.target.checked) autoTimer = setInterval(loadAll, 60000);
+  else clearInterval(autoTimer);
+});
+
+resizeAll();
+loadAll();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api news</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  button {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-left: auto; font-size: 12px; color: var(--muted); }
+  #status.error { color: #ef5350; }
+
+  main { padding: 20px; max-width: 900px; margin: 0 auto; }
+
+  .filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .chip.active {
+    background: rgba(79,140,255,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .chip:hover { color: var(--text); }
+
+  .article {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .article-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .article-meta .source { font-weight: 600; color: var(--text); }
+  .article-tags { display: flex; gap: 5px; }
+  .tag {
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+  .article a.title {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.35;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .article a.title:hover { color: var(--accent); }
+  .article .summary {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/news.html" class="active">News</a>
+  </nav>
+  <button id="refresh">Refresh</button>
+  <span id="status"></span>
+</header>
+
+<main>
+  <div class="filters" id="filters"></div>
+  <div id="articles"></div>
+</main>
+
+<script>
+const API_BASE = "";
+const COINS = [
+  { id: "bitcoin",  label: "BTC" },
+  { id: "ethereum", label: "ETH" },
+  { id: "ripple",   label: "XRP" },
+  { id: "litecoin", label: "LTC" },
+  { id: "dogecoin", label: "DOGE" },
+  { id: "solana",   label: "SOL" },
+];
+const COIN_LABEL = Object.fromEntries(COINS.map(c => [c.id, c.label]));
+
+let activeFilter = "all";
+let allArticles = [];
+
+const statusEl = document.getElementById("status");
+const refreshBtn = document.getElementById("refresh");
+const articlesEl = document.getElementById("articles");
+const filtersEl = document.getElementById("filters");
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+function renderFilters() {
+  filtersEl.innerHTML = "";
+  const chips = [{ id: "all", label: "All" }, ...COINS];
+  for (const c of chips) {
+    const chip = document.createElement("button");
+    chip.className = "chip" + (activeFilter === c.id ? " active" : "");
+    chip.textContent = c.label;
+    chip.addEventListener("click", () => {
+      activeFilter = c.id;
+      renderFilters();
+      renderArticles();
+    });
+    filtersEl.appendChild(chip);
+  }
+}
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function renderArticles() {
+  const filtered = activeFilter === "all"
+    ? allArticles
+    : allArticles.filter(a => a.coins.includes(activeFilter));
+
+  articlesEl.innerHTML = "";
+  if (!filtered.length) {
+    articlesEl.innerHTML = '<div class="empty">No articles found.</div>';
+    return;
+  }
+
+  for (const a of filtered) {
+    const div = document.createElement("div");
+    div.className = "article";
+    const tags = a.coins.map(c => `<span class="tag">${COIN_LABEL[c] || c}</span>`).join("");
+    div.innerHTML = `
+      <div class="article-meta">
+        <span class="source">${a.source}</span>
+        <span>&middot; ${timeAgo(a.publishedAt)}</span>
+        <span class="article-tags">${tags}</span>
+      </div>
+      <a class="title" href="${a.url}" target="_blank" rel="noopener noreferrer">${a.title}</a>
+      <div class="summary">${a.summary}</div>
+    `;
+    articlesEl.appendChild(div);
+  }
+}
+
+async function loadNews() {
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+  try {
+    const res = await fetch(`${API_BASE}/api/news`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    allArticles = body.articles;
+    renderArticles();
+    const errMsg = body.errors && body.errors.length ? ` (feed errors: ${body.errors.join("; ")})` : "";
+    setStatus(`Updated ${new Date().toLocaleTimeString()} · ${body.count} articles${errMsg}`, !!errMsg);
+  } catch (err) {
+    setStatus("Error: " + err.message, true);
+  } finally {
+    refreshBtn.disabled = false;
+  }
+}
+
+refreshBtn.addEventListener("click", loadNews);
+renderFilters();
+loadNews();
+</script>
+
+</body>
+</html>

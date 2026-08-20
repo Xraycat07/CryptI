@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api chart</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 16px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select, input, button {
+    background: #0e1117;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  input[type=number] { width: 70px; }
+  button {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #meta {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #price { font-size: 15px; font-weight: 600; color: var(--text); }
+  #change.up { color: var(--up); }
+  #change.down { color: var(--down); }
+  #chart-container { position: relative; width: 100%; height: calc(100vh - 61px); }
+  #status {
+    position: absolute;
+    top: 10px;
+    left: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    z-index: 2;
+  }
+  #status.error { color: var(--down); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html" class="active">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <label>Coin
+    <select id="coin">
+      <option value="bitcoin">BTC</option>
+      <option value="ethereum">ETH</option>
+      <option value="ripple" selected>XRP</option>
+      <option value="litecoin">LTC</option>
+      <option value="dogecoin">DOGE</option>
+      <option value="solana">SOL</option>
+    </select>
+  </label>
+  <label>Interval
+    <select id="interval">
+      <option value="1h">1h</option>
+      <option value="4h">4h</option>
+      <option value="1d" selected>1d</option>
+      <option value="1w">1w</option>
+    </select>
+  </label>
+  <label>Candles
+    <input type="number" id="limit" value="180" min="10" max="1000">
+  </label>
+  <button id="refresh">Refresh</button>
+  <label><input type="checkbox" id="auto"> Auto-refresh (60s)</label>
+  <div id="meta">
+    <span id="price">—</span>
+    <span id="change">—</span>
+  </div>
+</header>
+
+<div id="chart-container">
+  <div id="status"></div>
+</div>
+
+<script>
+const API_BASE = ""; // same origin
+
+const chart = LightweightCharts.createChart(document.getElementById("chart-container"), {
+  layout: {
+    background: { color: "#0e1117" },
+    textColor: "#8b93a1",
+  },
+  grid: {
+    vertLines: { color: "#1c212b" },
+    horzLines: { color: "#1c212b" },
+  },
+  timeScale: { timeVisible: true, secondsVisible: false },
+  rightPriceScale: { borderColor: "#2a2f3a" },
+});
+
+const series = chart.addCandlestickSeries({
+  upColor: "#26a69a",
+  downColor: "#ef5350",
+  borderVisible: false,
+  wickUpColor: "#26a69a",
+  wickDownColor: "#ef5350",
+});
+
+function resizeChart() {
+  const el = document.getElementById("chart-container");
+  chart.resize(el.clientWidth, el.clientHeight);
+}
+window.addEventListener("resize", resizeChart);
+resizeChart();
+
+const statusEl = document.getElementById("status");
+const priceEl = document.getElementById("price");
+const changeEl = document.getElementById("change");
+const refreshBtn = document.getElementById("refresh");
+const autoCheckbox = document.getElementById("auto");
+
+let autoTimer = null;
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+async function loadCandles() {
+  const coin = document.getElementById("coin").value;
+  const interval = document.getElementById("interval").value;
+  const limit = document.getElementById("limit").value;
+
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+
+  try {
+    const res = await fetch(`${API_BASE}/api/candles/${coin}?interval=${interval}&limit=${limit}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+
+    const data = body.candles.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+    series.setData(data);
+    chart.timeScale().fitContent();
+
+    const last = body.candles[body.candles.length - 1];
+    const first = body.candles[0];
+    const pct = ((last.close - first.open) / first.open) * 100;
+    priceEl.textContent = "$" + last.close.toLocaleString(undefined, { maximumFractionDigits: last.close < 10 ? 4 : 2 });
+    changeEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "% (range)";
+    changeEl.className = pct >= 0 ? "up" : "down";
+
+    setStatus("Updated " + new Date().toLocaleTimeString());
+  } catch (err) {
+    setStatus("Error: " + err.message, true);
+  } finally {
+    refreshBtn.disabled = false;
+  }
+}
+
+refreshBtn.addEventListener("click", loadCandles);
+document.getElementById("coin").addEventListener("change", loadCandles);
+document.getElementById("interval").addEventListener("change", loadCandles);
+
+autoCheckbox.addEventListener("change", () => {
+  if (autoCheckbox.checked) {
+    autoTimer = setInterval(loadCandles, 60000);
+  } else {
+    clearInterval(autoTimer);
+  }
+});
+
+loadCandles();
+</script>
+
+</body>
+</html>

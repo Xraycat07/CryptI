@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api trends</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  button {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-left: auto; font-size: 12px; color: var(--muted); }
+  #status.error { color: var(--down); }
+
+  main { padding: 20px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 12px 14px;
+    text-align: right;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.coin { font-weight: 600; }
+  td.up { color: var(--up); }
+  td.down { color: var(--down); }
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.uptrend { background: rgba(38,166,154,0.15); color: var(--up); }
+  .badge.downtrend { background: rgba(239,83,80,0.15); color: var(--down); }
+  .badge.mixed { background: rgba(139,147,161,0.15); color: var(--muted); }
+  .spark { vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html" class="active">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <button id="refresh">Refresh</button>
+  <span id="status"></span>
+</header>
+
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>Coin</th>
+        <th>Price</th>
+        <th>24h</th>
+        <th>7d</th>
+        <th>30d</th>
+        <th>Trend</th>
+        <th>Last 30d</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<script>
+const API_BASE = "";
+const COINS = [
+  { id: "bitcoin",  label: "BTC" },
+  { id: "ethereum", label: "ETH" },
+  { id: "ripple",   label: "XRP" },
+  { id: "litecoin", label: "LTC" },
+  { id: "dogecoin", label: "DOGE" },
+  { id: "solana",   label: "SOL" },
+];
+
+const statusEl = document.getElementById("status");
+const rowsEl = document.getElementById("rows");
+const refreshBtn = document.getElementById("refresh");
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+function fmtPrice(p) {
+  return "$" + p.toLocaleString(undefined, { maximumFractionDigits: p < 10 ? 4 : 2 });
+}
+
+function fmtPct(p) {
+  return (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
+}
+
+function pctClass(p) {
+  return p >= 0 ? "up" : "down";
+}
+
+function sma(closes, period) {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+function classifyTrend(price, sma20, sma50) {
+  if (sma20 == null || sma50 == null) return "mixed";
+  if (price > sma20 && sma20 > sma50) return "uptrend";
+  if (price < sma20 && sma20 < sma50) return "downtrend";
+  return "mixed";
+}
+
+function sparkline(closes, width = 100, height = 28) {
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const points = closes.map((c, i) => {
+    const x = (i / (closes.length - 1)) * width;
+    const y = height - ((c - min) / range) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const up = closes[closes.length - 1] >= closes[0];
+  const color = up ? "#26a69a" : "#ef5350";
+  return `<svg class="spark" width="${width}" height="${height}"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+}
+
+async function fetchCandles(coinId, limit) {
+  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=1d&limit=${limit}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
+  return body.candles;
+}
+
+async function loadTrends() {
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+  rowsEl.innerHTML = "";
+
+  const results = await Promise.allSettled(
+    COINS.map(coin => fetchCandles(coin.id, 60))
+  );
+
+  const errors = [];
+  const computed = [];
+
+  results.forEach((result, i) => {
+    const coin = COINS[i];
+    if (result.status === "rejected") {
+      errors.push(result.reason.message || String(result.reason));
+      return;
+    }
+    const candles = result.value;
+    if (candles.length < 2) return;
+
+    const closes = candles.map(c => c.close);
+    const last = closes[closes.length - 1];
+
+    const change = (backDays) => {
+      const idx = closes.length - 1 - backDays;
+      if (idx < 0) return null;
+      const base = closes[idx];
+      return ((last - base) / base) * 100;
+    };
+
+    const change24h = change(1);
+    const change7d = change(7);
+    const change30d = change(Math.min(30, closes.length - 1));
+    const sma20 = sma(closes, 20);
+    const sma50 = sma(closes, 50);
+    const trend = classifyTrend(last, sma20, sma50);
+
+    computed.push({ coin, price: last, change24h, change7d, change30d, trend, sparkCloses: closes.slice(-30) });
+  });
+
+  computed.sort((a, b) => (b.change24h ?? -Infinity) - (a.change24h ?? -Infinity));
+
+  for (const row of computed) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="coin">${row.coin.label}</td>
+      <td>${fmtPrice(row.price)}</td>
+      <td class="${row.change24h != null ? pctClass(row.change24h) : ''}">${row.change24h != null ? fmtPct(row.change24h) : '—'}</td>
+      <td class="${row.change7d != null ? pctClass(row.change7d) : ''}">${row.change7d != null ? fmtPct(row.change7d) : '—'}</td>
+      <td class="${row.change30d != null ? pctClass(row.change30d) : ''}">${row.change30d != null ? fmtPct(row.change30d) : '—'}</td>
+      <td><span class="badge ${row.trend}">${row.trend}</span></td>
+      <td>${sparkline(row.sparkCloses)}</td>
+    `;
+    rowsEl.appendChild(tr);
+  }
+
+  if (errors.length) {
+    setStatus("Partial error: " + errors.join("; "), true);
+  } else {
+    setStatus("Updated " + new Date().toLocaleTimeString());
+  }
+  refreshBtn.disabled = false;
+}
+
+refreshBtn.addEventListener("click", loadTrends);
+loadTrends();
+</script>
+
+</body>
+</html>

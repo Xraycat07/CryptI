@@ -1,0 +1,7 @@
+node_modules/
+*.log
+npm-debug.log*
+
+# one-off data pulls made during development, not part of the app
+*_365d.json
+*_binance_365d.json
