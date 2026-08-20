@@ -155,13 +155,22 @@
   </label>
   <label>Interval
     <select id="interval">
+      <option value="1m">1m</option>
+      <option value="5m">5m</option>
+      <option value="15m">15m</option>
       <option value="1h">1h</option>
+      <option value="4h">4h</option>
       <option value="6h">6h</option>
+      <option value="12h">12h</option>
       <option value="1d" selected>1d</option>
+      <option value="3d">3d</option>
       <option value="1w">1w</option>
+      <option value="2w">2w</option>
       <option value="1M">1M</option>
       <option value="3M">3M</option>
+      <option value="6M">6M</option>
       <option value="1Y">1Y</option>
+      <option value="2Y">2Y</option>
     </select>
   </label>
   <label>Currency
@@ -302,9 +311,28 @@ async function loadCandles() {
   }
 }
 
+const intervalSelect = document.getElementById("interval");
+const coinSelect = document.getElementById("coin");
+
+// Disables intervals this coin doesn't have enough stored history for
+// (e.g. 2Y on a recently-listed coin), falling back to the largest
+// available one if the current selection just became invalid.
+async function updateIntervalAvailability(coin) {
+  try {
+    const res = await fetch(`${API_BASE}/api/coins/${coin}/history-info`);
+    const info = await res.json();
+    if (res.ok) Strategy.applyIntervalAvailability(intervalSelect, info.storedDays);
+  } catch {
+    // best-effort — leave intervals as-is if this lookup fails
+  }
+}
+
 refreshBtn.addEventListener("click", loadCandles);
-document.getElementById("coin").addEventListener("change", loadCandles);
-document.getElementById("interval").addEventListener("change", loadCandles);
+coinSelect.addEventListener("change", async () => {
+  await updateIntervalAvailability(coinSelect.value);
+  loadCandles();
+});
+intervalSelect.addEventListener("change", loadCandles);
 
 autoCheckbox.addEventListener("change", () => {
   if (autoCheckbox.checked) {
@@ -314,7 +342,7 @@ autoCheckbox.addEventListener("change", () => {
   }
 });
 
-loadCandles();
+updateIntervalAvailability(coinSelect.value).then(loadCandles);
 </script>
 
 </body>

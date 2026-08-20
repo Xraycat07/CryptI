@@ -56,14 +56,15 @@ async function fetchRawCandles(product, granularity, count) {
     .reverse(); // chronological ascending, as charts expect
 }
 
-function aggregateWeekly(dailyCandlesAsc) {
-  // Group from the most recent day backward so the latest week is complete,
-  // then flip back to ascending order.
+// Groups a chronological candle series into fixed-size counts (e.g. 4 hourly
+// candles -> 4h, 7 daily -> 1w), counting back from the most recent candle
+// so only a leftover *oldest* partial group gets dropped.
+function aggregateByCount(candlesAsc, groupSize) {
   const groups = [];
-  for (let i = dailyCandlesAsc.length; i > 0; i -= 7) {
-    const start = Math.max(0, i - 7);
-    const chunk = dailyCandlesAsc.slice(start, i);
-    if (chunk.length < 7) continue; // drop a leftover partial oldest week
+  for (let i = candlesAsc.length; i > 0; i -= groupSize) {
+    const start = Math.max(0, i - groupSize);
+    const chunk = candlesAsc.slice(start, i);
+    if (chunk.length < groupSize) continue;
     groups.push({
       time: chunk[0].time,
       open: chunk[0].open,
@@ -183,8 +184,34 @@ async function fetchDailyCandlesPaginated(product, totalDays) {
   return [...merged.values()].sort((a, b) => a.time - b.time);
 }
 
-const AGGREGATE_INTERVALS = { "1w": aggregateWeekly, "1M": aggregateMonthly };
-const LONG_AGGREGATE_INTERVALS = { "3M": { groupMonths: 3 }, "1Y": { groupMonths: 12 } };
+// Short-window aggregates: one cheap fetch (<=300 candles) at a base
+// granularity, grouped into fixed-size spans. Always available for any
+// actively-trading product — doesn't depend on the local archive.
+const SHORT_AGGREGATE_INTERVALS = {
+  "4h": { base: "1h", groupSize: 4 },
+  "12h": { base: "6h", groupSize: 2 },
+  "3d": { base: "1d", groupSize: 3 },
+  "1w": { base: "1d", groupSize: 7 },
+  "2w": { base: "1d", groupSize: 14 },
+};
+
+// Calendar-month-based aggregates, built from the merged local archive +
+// live daily candles — depth varies per coin depending on archive history.
+const LONG_AGGREGATE_INTERVALS = {
+  "1M": { groupMonths: 1 },
+  "3M": { groupMonths: 3 },
+  "6M": { groupMonths: 6 },
+  "1Y": { groupMonths: 12 },
+  "2Y": { groupMonths: 24 },
+};
+
+// Every interval this app understands, ordered smallest to largest —
+// exposed via /api/intervals so the frontend doesn't have to hardcode it.
+const ALL_INTERVALS = [
+  ...Object.keys(GRANULARITY_SECONDS),
+  ...Object.keys(SHORT_AGGREGATE_INTERVALS),
+  ...Object.keys(LONG_AGGREGATE_INTERVALS),
+].filter((v, i, arr) => arr.indexOf(v) === i); // "1d" appears in both native + short-agg base
 
 async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
   const product = SYMBOL_MAP[coin.toLowerCase()];
@@ -194,10 +221,10 @@ async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
     throw err;
   }
 
-  const aggregator = AGGREGATE_INTERVALS[interval];
-  if (aggregator) {
-    const daily = await fetchRawCandles(product, GRANULARITY_SECONDS["1d"], MAX_CANDLES_PER_REQUEST);
-    return aggregator(daily).slice(-limit);
+  const shortAgg = SHORT_AGGREGATE_INTERVALS[interval];
+  if (shortAgg) {
+    const base = await fetchRawCandles(product, GRANULARITY_SECONDS[shortAgg.base], MAX_CANDLES_PER_REQUEST);
+    return aggregateByCount(base, shortAgg.groupSize).slice(-limit);
   }
 
   const longAgg = LONG_AGGREGATE_INTERVALS[interval];
@@ -217,8 +244,7 @@ async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
 
   const granularity = GRANULARITY_SECONDS[interval];
   if (!granularity) {
-    const allowed = [...Object.keys(GRANULARITY_SECONDS), ...Object.keys(AGGREGATE_INTERVALS), ...Object.keys(LONG_AGGREGATE_INTERVALS)].join(", ");
-    const err = new Error(`Unsupported interval "${interval}". Allowed: ${allowed}`);
+    const err = new Error(`Unsupported interval "${interval}". Allowed: ${ALL_INTERVALS.join(", ")}`);
     err.status = 400;
     throw err;
   }
@@ -262,4 +288,24 @@ async function backfillHistoryIfNeeded() {
   }
 }
 
-module.exports = { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded };
+// Reports how much daily history is actually available for a coin, so the
+// frontend can dynamically enable/disable long intervals (6M/1Y/2Y) per
+// coin instead of offering an option that would return almost nothing.
+async function getHistoryInfo(coin) {
+  const product = SYMBOL_MAP[coin.toLowerCase()];
+  if (!product) {
+    const err = new Error(`Unknown coin "${coin}". Supported: ${Object.keys(SYMBOL_MAP).join(", ")}`);
+    err.status = 400;
+    throw err;
+  }
+  const stored = await history.loadStoredDaily(product);
+  return {
+    storedDays: stored.length,
+    earliestTime: stored.length ? stored[0].time : null,
+  };
+}
+
+module.exports = {
+  getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded,
+  getHistoryInfo, ALL_INTERVALS,
+};

@@ -163,6 +163,32 @@
     return lines;
   }
 
+  // ---------- interval availability ----------
+  // Minimum days of daily history typically needed for a calendar-based
+  // interval to return more than a token candle or two. Short/native
+  // intervals (1m..2w) are always available for an actively-trading product
+  // since they only depend on recent activity, not archive depth.
+  const INTERVAL_MIN_DAYS = { "1M": 35, "3M": 95, "6M": 185, "1Y": 370, "2Y": 740 };
+
+  // Disables <option>s in an interval <select> that this coin doesn't have
+  // enough stored history for, and re-points the selection at the largest
+  // still-available interval if the current one just became invalid.
+  // Returns true if the selection changed (caller should reload data).
+  function applyIntervalAvailability(selectEl, storedDays) {
+    const previousValue = selectEl.value;
+    for (const opt of selectEl.options) {
+      const minDays = INTERVAL_MIN_DAYS[opt.value] || 0;
+      const available = storedDays >= minDays;
+      opt.disabled = !available;
+      opt.title = available ? "" : `Needs ~${minDays}d of history (this coin has ${storedDays}d)`;
+    }
+    if (selectEl.options[selectEl.selectedIndex]?.disabled) {
+      const enabled = [...selectEl.options].filter((o) => !o.disabled);
+      if (enabled.length) selectEl.value = enabled[enabled.length - 1].value;
+    }
+    return selectEl.value !== previousValue;
+  }
+
   // ---------- naive trend projection ----------
   // A least-squares line through the series, extended forward `count` more
   // bars — a statistical extrapolation of the recent trend, not a forecast.
@@ -330,7 +356,7 @@
   global.Strategy = {
     ema, rsi, macd,
     findSwingPoints, findSRZones, findTrendLines, lineValueAt,
-    projectForward, extendTimes,
+    projectForward, extendTimes, applyIntervalAvailability,
     registerIndicator, runStrategy,
   };
 })(window);

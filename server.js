@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate } = require("./coingecko");
-const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded } = require("./coinbase");
+const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory } = require("./luno");
 
@@ -188,6 +188,22 @@ app.get("/api/candles/:coin", async (req, res) => {
 // List coins supported by the candle endpoint
 app.get("/api/coins", (req, res) => {
   res.json({ coins: Object.keys(SYMBOL_MAP) });
+});
+
+// Every interval the candle endpoint understands, smallest to largest
+app.get("/api/intervals", (req, res) => {
+  res.json({ intervals: ALL_INTERVALS });
+});
+
+// How much daily history is actually stored for a coin — used by the
+// frontend to dynamically enable/disable long intervals (6M/1Y/2Y) per coin
+app.get("/api/coins/:coin/history-info", async (req, res) => {
+  try {
+    const info = await getHistoryInfo(req.params.coin);
+    res.json(info);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
 });
 
 // News related to the tracked coins, pulled from CoinDesk/Cointelegraph/Decrypt RSS
