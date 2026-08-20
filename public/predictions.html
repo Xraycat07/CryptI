@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>crypto-api trends</title>
+<title>crypto-api predictions</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
@@ -69,7 +69,7 @@
     align-items: center;
     gap: 6px;
   }
-  select {
+  select, input {
     background: #0e1117;
     color: var(--text);
     border: 1px solid var(--border);
@@ -77,6 +77,7 @@
     padding: 6px 10px;
     font-size: 13px;
   }
+  input[type=number] { width: 60px; }
   button {
     background: var(--accent);
     border: 1px solid var(--accent);
@@ -93,6 +94,25 @@
   #status.error { color: var(--down); }
 
   main { padding: 20px; }
+
+  .disclaimer {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .disclaimer strong { color: var(--text); }
+  #summary { font-size: 12px; color: var(--text); white-space: nowrap; }
+  #summary .up { color: var(--up); font-weight: 600; }
+  #summary .down { color: var(--down); font-weight: 600; }
 
   table {
     width: 100%;
@@ -127,10 +147,10 @@
     font-size: 11px;
     font-weight: 600;
   }
-  .badge.uptrend { background: rgba(38,166,154,0.15); color: var(--up); }
-  .badge.downtrend { background: rgba(239,83,80,0.15); color: var(--down); }
-  .badge.mixed { background: rgba(139,147,161,0.15); color: var(--muted); }
+  .badge.up { background: rgba(38,166,154,0.15); color: var(--up); }
+  .badge.down { background: rgba(239,83,80,0.15); color: var(--down); }
   .spark { vertical-align: middle; }
+  .empty-note { text-align: center; color: var(--muted); padding: 30px 0; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -140,12 +160,26 @@
   <nav>
     <a href="/">Dashboard</a>
     <a href="/single.html">Single-coin</a>
-    <a href="/trends.html" class="active">Trends</a>
+    <a href="/trends.html">Trends</a>
     <a href="/indicators.html">Indicators</a>
-    <a href="/predictions.html">Predictions</a>
+    <a href="/predictions.html" class="active">Predictions</a>
     <a href="/news.html">News</a>
   </nav>
   <a href="/luno.html" class="luno-link">🔒 Luno</a>
+  <label>Interval
+    <select id="interval">
+      <option value="1h">1h</option>
+      <option value="6h">6h</option>
+      <option value="1d" selected>1d</option>
+      <option value="1w">1w</option>
+      <option value="1M">1M</option>
+      <option value="3M">3M</option>
+      <option value="1Y">1Y</option>
+    </select>
+  </label>
+  <label>Bars ahead
+    <input type="number" id="bars" value="10" min="2" max="30">
+  </label>
   <label>Currency
     <select id="currency">
       <option value="USD">USD $</option>
@@ -157,22 +191,27 @@
 </header>
 
 <main>
+  <div class="disclaimer">
+    <span><strong>Naive linear projection</strong> per coin — a least-squares line through recent closes, extended forward. Not a forecast, not financial advice.</span>
+    <span id="summary">—</span>
+  </div>
+
   <table>
     <thead>
       <tr>
         <th>Coin</th>
         <th>Price</th>
-        <th>24h</th>
-        <th>7d</th>
-        <th>30d</th>
-        <th>Trend</th>
-        <th>Last 30d</th>
+        <th>Projected</th>
+        <th>Change</th>
+        <th>Direction</th>
+        <th>History + projection</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 </main>
 
+<script src="/strategy.js"></script>
 <script src="/fx.js"></script>
 <script>
 const API_BASE = "";
@@ -193,6 +232,7 @@ const COINS = [
 
 const statusEl = document.getElementById("status");
 const rowsEl = document.getElementById("rows");
+const summaryEl = document.getElementById("summary");
 const refreshBtn = document.getElementById("refresh");
 
 function setStatus(msg, isError) {
@@ -211,39 +251,32 @@ function fmtPct(p) {
   return (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
 }
 
-function pctClass(p) {
-  return p >= 0 ? "up" : "down";
-}
-
-function sma(closes, period) {
-  if (closes.length < period) return null;
-  const slice = closes.slice(-period);
-  return slice.reduce((a, b) => a + b, 0) / period;
-}
-
-function classifyTrend(price, sma20, sma50) {
-  if (sma20 == null || sma50 == null) return "mixed";
-  if (price > sma20 && sma20 > sma50) return "uptrend";
-  if (price < sma20 && sma20 < sma50) return "downtrend";
-  return "mixed";
-}
-
-function sparkline(closes, width = 100, height = 28) {
-  const min = Math.min(...closes);
-  const max = Math.max(...closes);
+// Solid history, dashed projection continuing from the same last point —
+// same convention used on the Dashboard and Single-coin charts.
+function sparklineWithProjection(historyCloses, projectedCloses, width = 120, height = 32) {
+  const all = [...historyCloses, ...projectedCloses];
+  const min = Math.min(...all), max = Math.max(...all);
   const range = max - min || 1;
-  const points = closes.map((c, i) => {
-    const x = (i / (closes.length - 1)) * width;
-    const y = height - ((c - min) / range) * height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-  const up = closes[closes.length - 1] >= closes[0];
+  const totalSteps = historyCloses.length - 1 + projectedCloses.length;
+  const xAt = (i) => (totalSteps <= 0 ? 0 : (i / totalSteps) * width);
+  const yAt = (v) => height - ((v - min) / range) * height;
+
+  const histPts = historyCloses.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+  const projPts = [
+    `${xAt(historyCloses.length - 1).toFixed(1)},${yAt(historyCloses[historyCloses.length - 1]).toFixed(1)}`,
+    ...projectedCloses.map((v, i) => `${xAt(historyCloses.length + i).toFixed(1)},${yAt(v).toFixed(1)}`),
+  ].join(" ");
+
+  const up = projectedCloses[projectedCloses.length - 1] >= historyCloses[historyCloses.length - 1];
   const color = up ? "#26a69a" : "#ef5350";
-  return `<svg class="spark" width="${width}" height="${height}"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+  return `<svg class="spark" width="${width}" height="${height}">
+    <polyline points="${histPts}" fill="none" stroke="${color}" stroke-width="1.5"/>
+    <polyline points="${projPts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.6"/>
+  </svg>`;
 }
 
-async function fetchCandles(coinId, limit) {
-  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=1d&limit=${limit}`);
+async function fetchCandles(coinId, interval, limit) {
+  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=${interval}&limit=${limit}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;
@@ -253,16 +286,26 @@ let lastComputed = [];
 
 function renderRows(computed) {
   rowsEl.innerHTML = "";
+  if (!computed.length) {
+    rowsEl.innerHTML = '<tr><td colspan="6"><div class="empty-note">No data available.</div></td></tr>';
+    summaryEl.textContent = "—";
+    return;
+  }
+
+  const up = computed.filter(r => r.pctChange >= 0).length;
+  const down = computed.length - up;
+  summaryEl.innerHTML = `<span class="up">${up} up</span> &middot; <span class="down">${down} down</span> of ${computed.length}`;
+
   for (const row of computed) {
     const tr = document.createElement("tr");
+    const dir = row.pctChange >= 0 ? "up" : "down";
     tr.innerHTML = `
       <td class="coin">${row.coin.label}</td>
-      <td>${fmtPrice(row.price)}</td>
-      <td class="${row.change24h != null ? pctClass(row.change24h) : ''}">${row.change24h != null ? fmtPct(row.change24h) : '—'}</td>
-      <td class="${row.change7d != null ? pctClass(row.change7d) : ''}">${row.change7d != null ? fmtPct(row.change7d) : '—'}</td>
-      <td class="${row.change30d != null ? pctClass(row.change30d) : ''}">${row.change30d != null ? fmtPct(row.change30d) : '—'}</td>
-      <td><span class="badge ${row.trend}">${row.trend}</span></td>
-      <td>${sparkline(row.sparkCloses)}</td>
+      <td>${fmtPrice(row.last)}</td>
+      <td>${fmtPrice(row.projectedLast)}</td>
+      <td class="${dir}">${fmtPct(row.pctChange)}</td>
+      <td><span class="badge ${dir}">${dir === "up" ? "▲ up" : "▼ down"}</span></td>
+      <td>${sparklineWithProjection(row.historyCloses, row.projectedCloses)}</td>
     `;
     rowsEl.appendChild(tr);
   }
@@ -274,14 +317,20 @@ FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
   renderRows(lastComputed);
 });
 
-async function loadTrends() {
+document.getElementById("bars").addEventListener("change", () => loadPredictions(true));
+
+async function loadPredictions(fromCache) {
+  const interval = document.getElementById("interval").value;
+  const barsWanted = Math.max(2, Math.min(30, Number(document.getElementById("bars").value) || 10));
+
   refreshBtn.disabled = true;
   setStatus("Loading…");
-  rowsEl.innerHTML = "";
 
-  const results = await Promise.allSettled(
-    COINS.map(coin => fetchCandles(coin.id, 60))
-  );
+  const results = fromCache && lastRawCandles
+    ? lastRawCandles
+    : await Promise.allSettled(COINS.map(coin => fetchCandles(coin.id, interval, 90)));
+
+  lastRawCandles = results;
 
   const errors = [];
   const computed = [];
@@ -296,27 +345,20 @@ async function loadTrends() {
     if (candles.length < 2) return;
 
     const closes = candles.map(c => c.close);
+    const projectBars = Math.max(2, Math.min(barsWanted, Math.floor(closes.length * 0.3)));
+    const projected = Strategy.projectForward(closes, projectBars);
     const last = closes[closes.length - 1];
+    const projectedLast = projected[projected.length - 1];
+    const pctChange = ((projectedLast - last) / last) * 100;
 
-    const change = (backDays) => {
-      const idx = closes.length - 1 - backDays;
-      if (idx < 0) return null;
-      const base = closes[idx];
-      return ((last - base) / base) * 100;
-    };
-
-    const change24h = change(1);
-    const change7d = change(7);
-    const change30d = change(Math.min(30, closes.length - 1));
-    const sma20 = sma(closes, 20);
-    const sma50 = sma(closes, 50);
-    const trend = classifyTrend(last, sma20, sma50);
-
-    computed.push({ coin, price: last, change24h, change7d, change30d, trend, sparkCloses: closes.slice(-30) });
+    computed.push({
+      coin, last, projectedLast, pctChange,
+      historyCloses: closes.slice(-30),
+      projectedCloses: projected,
+    });
   });
 
-  computed.sort((a, b) => (b.change24h ?? -Infinity) - (a.change24h ?? -Infinity));
-
+  computed.sort((a, b) => b.pctChange - a.pctChange);
   lastComputed = computed;
   renderRows(computed);
 
@@ -328,8 +370,10 @@ async function loadTrends() {
   refreshBtn.disabled = false;
 }
 
-refreshBtn.addEventListener("click", loadTrends);
-loadTrends();
+let lastRawCandles = null;
+refreshBtn.addEventListener("click", () => loadPredictions(false));
+document.getElementById("interval").addEventListener("change", () => loadPredictions(false));
+loadPredictions(false);
 </script>
 
 </body>

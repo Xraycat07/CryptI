@@ -5,6 +5,8 @@
 <title>crypto-api chart</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/strategy.js"></script>
+<script src="/fx.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -49,6 +51,20 @@
   }
   nav a.active { color: var(--text); border-bottom-color: var(--accent); }
   nav a:hover { color: var(--text); }
+  .luno-link {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .luno-link:hover { color: var(--text); border-color: var(--accent); }
+  .luno-link.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
   label {
     font-size: 12px;
     color: var(--muted);
@@ -85,6 +101,9 @@
   #price { font-size: 15px; font-weight: 600; color: var(--text); }
   #change.up { color: var(--up); }
   #change.down { color: var(--down); }
+  #prediction { font-size: 12px; }
+  #prediction .pred-up { color: var(--up); }
+  #prediction .pred-down { color: var(--down); }
   #chart-container { position: relative; width: 100%; height: calc(100vh - 61px); }
   #status {
     position: absolute;
@@ -95,6 +114,14 @@
     z-index: 2;
   }
   #status.error { color: var(--down); }
+  #predictionNote {
+    position: absolute;
+    top: 32px;
+    left: 20px;
+    font-size: 11px;
+    color: var(--muted);
+    z-index: 2;
+  }
 </style>
 </head>
 <body>
@@ -106,8 +133,10 @@
     <a href="/single.html" class="active">Single-coin</a>
     <a href="/trends.html">Trends</a>
     <a href="/indicators.html">Indicators</a>
+    <a href="/predictions.html">Predictions</a>
     <a href="/news.html">News</a>
   </nav>
+  <a href="/luno.html" class="luno-link">🔒 Luno</a>
   <label>Coin
     <select id="coin">
       <option value="bitcoin">BTC</option>
@@ -116,6 +145,12 @@
       <option value="litecoin">LTC</option>
       <option value="dogecoin">DOGE</option>
       <option value="solana">SOL</option>
+      <option value="cardano">ADA</option>
+      <option value="polkadot">DOT</option>
+      <option value="chainlink">LINK</option>
+      <option value="avalanche-2">AVAX</option>
+      <option value="polygon-ecosystem-token">POL</option>
+      <option value="uniswap">UNI</option>
     </select>
   </label>
   <label>Interval
@@ -124,6 +159,15 @@
       <option value="6h">6h</option>
       <option value="1d" selected>1d</option>
       <option value="1w">1w</option>
+      <option value="1M">1M</option>
+      <option value="3M">3M</option>
+      <option value="1Y">1Y</option>
+    </select>
+  </label>
+  <label>Currency
+    <select id="currency">
+      <option value="USD">USD $</option>
+      <option value="ZAR">ZAR R</option>
     </select>
   </label>
   <label>Candles
@@ -134,11 +178,13 @@
   <div id="meta">
     <span id="price">—</span>
     <span id="change">—</span>
+    <span id="prediction">—</span>
   </div>
 </header>
 
 <div id="chart-container">
   <div id="status"></div>
+  <div id="predictionNote">Dashed segment is a naive linear trend projection, not a price forecast.</div>
 </div>
 
 <script>
@@ -164,6 +210,11 @@ const series = chart.addCandlestickSeries({
   wickUpColor: "#26a69a",
   wickDownColor: "#ef5350",
 });
+const predSeries = chart.addLineSeries({
+  color: "#4f8cff", lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+  lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+});
+const PROJECT_BARS = 10;
 
 function resizeChart() {
   const el = document.getElementById("chart-container");
@@ -179,16 +230,56 @@ const refreshBtn = document.getElementById("refresh");
 const autoCheckbox = document.getElementById("auto");
 
 let autoTimer = null;
+let requestSeq = 0; // guards against a slower stale request overwriting a newer one
+let lastCandlesUsd = null;
+let currentCurrency = "USD";
+let currentRate = 1;
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg;
   statusEl.className = isError ? "error" : "";
 }
 
+function renderCandles(candlesUsd) {
+  if (!candlesUsd || !candlesUsd.length) return;
+  const conv = (v) => FX.convert(v, currentCurrency, currentRate);
+  const candles = candlesUsd.map(c => ({ ...c, open: conv(c.open), high: conv(c.high), low: conv(c.low), close: conv(c.close) }));
+
+  series.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+
+  const last = candles[candles.length - 1];
+  const first = candles[0];
+  const pct = ((last.close - first.open) / first.open) * 100;
+  priceEl.textContent = FX.formatMoney(candlesUsd[candlesUsd.length - 1].close, currentCurrency, currentRate);
+  changeEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "% (range)";
+  changeEl.className = pct >= 0 ? "up" : "down";
+
+  // Naive linear-trend projection, capped relative to available history
+  // so a handful of candles (e.g. a 1Y view) don't get extrapolated wildly.
+  const projectBars = Math.max(2, Math.min(PROJECT_BARS, Math.floor(candles.length * 0.3)));
+  const closes = candles.map(c => c.close);
+  const times = candles.map(c => c.time);
+  const projectedCloses = Strategy.projectForward(closes, projectBars);
+  const projectedTimes = Strategy.extendTimes(times, projectBars);
+  predSeries.setData([{ time: last.time, value: last.close }, ...projectedTimes.map((t, i) => ({ time: t, value: projectedCloses[i] }))]);
+  const predPct = ((projectedCloses[projectedCloses.length - 1] - last.close) / last.close) * 100;
+  const predEl = document.getElementById("prediction");
+  predEl.innerHTML = `Projected ${projectBars} bars: <span class="${predPct >= 0 ? "pred-up" : "pred-down"}">${predPct >= 0 ? "+" : ""}${predPct.toFixed(2)}%</span>`;
+
+  chart.timeScale().fitContent();
+}
+
+FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
+  currentCurrency = currency;
+  currentRate = rate;
+  renderCandles(lastCandlesUsd);
+});
+
 async function loadCandles() {
   const coin = document.getElementById("coin").value;
   const interval = document.getElementById("interval").value;
   const limit = document.getElementById("limit").value;
+  const mySeq = ++requestSeq;
 
   refreshBtn.disabled = true;
   setStatus("Loading…");
@@ -196,24 +287,12 @@ async function loadCandles() {
   try {
     const res = await fetch(`${API_BASE}/api/candles/${coin}?interval=${interval}&limit=${limit}`);
     const body = await res.json();
+    if (mySeq !== requestSeq) return; // a newer request has since started — discard this one
     if (!res.ok) throw new Error(body.error || res.statusText);
+    if (!body.candles.length) throw new Error("No candle data for this coin/interval");
 
-    const data = body.candles.map(c => ({
-      time: c.time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
-    series.setData(data);
-    chart.timeScale().fitContent();
-
-    const last = body.candles[body.candles.length - 1];
-    const first = body.candles[0];
-    const pct = ((last.close - first.open) / first.open) * 100;
-    priceEl.textContent = "$" + last.close.toLocaleString(undefined, { maximumFractionDigits: last.close < 10 ? 4 : 2 });
-    changeEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "% (range)";
-    changeEl.className = pct >= 0 ? "up" : "down";
+    lastCandlesUsd = body.candles;
+    renderCandles(lastCandlesUsd);
 
     setStatus("Updated " + new Date().toLocaleTimeString());
   } catch (err) {

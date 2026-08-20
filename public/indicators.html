@@ -5,6 +5,8 @@
 <title>crypto-api indicators</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/strategy.js"></script>
+<script src="/fx.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -52,6 +54,20 @@
   }
   nav a.active { color: var(--text); border-bottom-color: var(--accent); }
   nav a:hover { color: var(--text); }
+  .luno-link {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .luno-link:hover { color: var(--text); border-color: var(--accent); }
+  .luno-link.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
   label {
     font-size: 12px;
     color: var(--muted);
@@ -77,7 +93,9 @@
   }
   button:hover { filter: brightness(1.1); }
   button:disabled { opacity: 0.5; cursor: default; }
-  #status { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .secondary-btn { background: transparent; border-color: var(--border); color: var(--muted); }
+  .secondary-btn:hover { color: var(--text); border-color: var(--muted); filter: none; }
+  #status { font-size: 12px; color: var(--muted); }
   #status.error { color: var(--down); }
 
   main { padding: 16px 20px; }
@@ -121,6 +139,52 @@
   #price-chart { height: 400px; }
   #rsi-chart { height: 160px; }
   #macd-chart { height: 160px; }
+
+  /* strategy config */
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .cfg-card {
+    background: #0e1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .cfg-card .cfg-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .cfg-card label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    margin-bottom: 6px;
+    gap: 6px;
+  }
+  .cfg-card label:last-child { margin-bottom: 0; }
+  .cfg-card input[type=number], .cfg-card select { width: 76px; padding: 4px 6px; font-size: 12px; }
+  #strategyConfig[hidden] { display: none; }
+  .strategy-actions { display: flex; align-items: center; gap: 10px; }
+  .strategy-hint { font-size: 11px; color: var(--muted); }
+
+  /* signals table */
+  #signalsTable table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #signalsTable th, #signalsTable td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  #signalsTable th { color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; }
+  #signalsTable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #signalsTable th.num { text-align: right; }
+  .side-badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .side-badge.buy { background: rgba(38,166,154,0.15); color: var(--up); }
+  .side-badge.sell { background: rgba(239,83,80,0.15); color: var(--down); }
+  .empty-note { color: var(--muted); font-size: 12px; padding: 12px 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -132,8 +196,10 @@
     <a href="/single.html">Single-coin</a>
     <a href="/trends.html">Trends</a>
     <a href="/indicators.html" class="active">Indicators</a>
+    <a href="/predictions.html">Predictions</a>
     <a href="/news.html">News</a>
   </nav>
+  <a href="/luno.html" class="luno-link">🔒 Luno</a>
   <label>Coin
     <select id="coin">
       <option value="bitcoin">BTC</option>
@@ -142,6 +208,12 @@
       <option value="litecoin">LTC</option>
       <option value="dogecoin">DOGE</option>
       <option value="solana">SOL</option>
+      <option value="cardano">ADA</option>
+      <option value="polkadot">DOT</option>
+      <option value="chainlink">LINK</option>
+      <option value="avalanche-2">AVAX</option>
+      <option value="polygon-ecosystem-token">POL</option>
+      <option value="uniswap">UNI</option>
     </select>
   </label>
   <label>Interval
@@ -150,6 +222,15 @@
       <option value="6h">6h</option>
       <option value="1d" selected>1d</option>
       <option value="1w">1w</option>
+      <option value="1M">1M</option>
+      <option value="3M">3M</option>
+      <option value="1Y">1Y</option>
+    </select>
+  </label>
+  <label>Currency
+    <select id="currency">
+      <option value="USD">USD $</option>
+      <option value="ZAR">ZAR R</option>
     </select>
   </label>
   <label>Candles
@@ -163,7 +244,7 @@
 <main>
   <div class="panel">
     <div class="panel-header">
-      <span class="panel-title">Price &mdash; EMA 20 / EMA 50</span>
+      <span class="panel-title" id="price-title">Price &mdash; EMA 20 / EMA 50</span>
       <div class="legend-inline">
         <span><span class="swatch" style="background:#e6b400"></span>EMA 20</span>
         <span><span class="swatch" style="background:#4f8cff"></span>EMA 50</span>
@@ -174,7 +255,7 @@
 
   <div class="panel">
     <div class="panel-header">
-      <span class="panel-title">RSI (14)</span>
+      <span class="panel-title" id="rsi-title">RSI (14)</span>
       <span class="panel-value" id="rsi-value">—</span>
     </div>
     <div id="rsi-chart"></div>
@@ -182,7 +263,7 @@
 
   <div class="panel">
     <div class="panel-header">
-      <span class="panel-title">MACD (12, 26, 9)</span>
+      <span class="panel-title" id="macd-title">MACD</span>
       <div class="legend-inline">
         <span><span class="swatch" style="background:#4f8cff"></span>MACD</span>
         <span><span class="swatch" style="background:#e6b400"></span>Signal</span>
@@ -190,64 +271,81 @@
     </div>
     <div id="macd-chart"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Strategy</span>
+      <button id="toggleStrategyConfig" class="secondary-btn" type="button">Configure</button>
+    </div>
+    <div id="strategyConfig" hidden>
+      <div class="strategy-grid">
+        <div class="cfg-card">
+          <div class="cfg-title"><label><input type="checkbox" id="cfg-emaCross-enabled" checked> EMA cross</label></div>
+          <label>Fast <input type="number" id="cfg-emaCross-fast" value="20" min="2" max="300"></label>
+          <label>Slow <input type="number" id="cfg-emaCross-slow" value="50" min="2" max="400"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title"><label><input type="checkbox" id="cfg-rsi-enabled" checked> RSI</label></div>
+          <label>Period <input type="number" id="cfg-rsi-period" value="14" min="2" max="100"></label>
+          <label>Oversold <input type="number" id="cfg-rsi-oversold" value="30" min="1" max="49"></label>
+          <label>Overbought <input type="number" id="cfg-rsi-overbought" value="70" min="51" max="99"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title"><label><input type="checkbox" id="cfg-macd-enabled" checked> MACD</label></div>
+          <label>Fast <input type="number" id="cfg-macd-fast" value="12" min="2" max="100"></label>
+          <label>Slow <input type="number" id="cfg-macd-slow" value="26" min="2" max="200"></label>
+          <label>Signal <input type="number" id="cfg-macd-signal" value="9" min="2" max="100"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title"><label><input type="checkbox" id="cfg-srZones-enabled" checked> Support/Resistance</label></div>
+          <label>Tolerance % <input type="number" id="cfg-srZones-tolerancePct" value="1.5" step="0.1" min="0.1" max="10"></label>
+          <label>Min touches <input type="number" id="cfg-srZones-minTouches" value="2" min="2" max="10"></label>
+          <label>Proximity % <input type="number" id="cfg-srZones-proximityPct" value="1" step="0.1" min="0.1" max="10"></label>
+          <label>Max zones <input type="number" id="cfg-srZones-maxZones" value="4" min="1" max="10"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title"><label><input type="checkbox" id="cfg-trendlines-enabled" checked> Trend lines</label></div>
+          <label>Tolerance % <input type="number" id="cfg-trendlines-tolerancePct" value="0.75" step="0.1" min="0.1" max="10"></label>
+          <label>Min touches <input type="number" id="cfg-trendlines-minTouches" value="2" min="2" max="10"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title">Confluence</div>
+          <label>Min bullish <input type="number" id="cfg-minBullish" value="3" min="1" max="5"></label>
+          <label>Min bearish <input type="number" id="cfg-minBearish" value="3" min="1" max="5"></label>
+          <label>Cooldown bars <input type="number" id="cfg-cooldown" value="5" min="0" max="60"></label>
+        </div>
+        <div class="cfg-card">
+          <div class="cfg-title">Risk</div>
+          <label>Stop mode
+            <select id="cfg-stopMode">
+              <option value="zone">Nearest zone</option>
+              <option value="pct">Percent</option>
+            </select>
+          </label>
+          <label>Stop % <input type="number" id="cfg-stopPct" value="2" step="0.1" min="0.1" max="20"></label>
+          <label>Risk:Reward <input type="number" id="cfg-riskReward" value="2" step="0.1" min="0.5" max="10"></label>
+        </div>
+      </div>
+      <div class="strategy-actions">
+        <button id="applyStrategy" type="button">Apply strategy</button>
+        <button id="resetStrategy" class="secondary-btn" type="button">Reset to defaults</button>
+        <span class="strategy-hint">Saved locally in this browser. New indicators can be added via <code>Strategy.registerIndicator()</code> in strategy.js.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Signals</span>
+      <span class="panel-value" id="signalsSummary">—</span>
+    </div>
+    <div id="signalsTable"></div>
+  </div>
 </main>
 
 <script>
 const API_BASE = "";
-
-// ---------- indicator math ----------
-function ema(values, period) {
-  const k = 2 / (period + 1);
-  const out = new Array(values.length).fill(null);
-  let prev;
-  for (let i = 0; i < values.length; i++) {
-    if (i < period - 1) continue;
-    if (i === period - 1) {
-      prev = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      out[i] = prev;
-      continue;
-    }
-    prev = values[i] * k + prev * (1 - k);
-    out[i] = prev;
-  }
-  return out;
-}
-
-function rsi(values, period = 14) {
-  const out = new Array(values.length).fill(null);
-  if (values.length < period + 1) return out;
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= period; i++) {
-    const diff = values[i] - values[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
-  }
-  let avgGain = gains / period, avgLoss = losses / period;
-  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  for (let i = period + 1; i < values.length; i++) {
-    const diff = values[i] - values[i - 1];
-    const gain = diff > 0 ? diff : 0;
-    const loss = diff < 0 ? -diff : 0;
-    avgGain = (avgGain * (period - 1) + gain) / period;
-    avgLoss = (avgLoss * (period - 1) + loss) / period;
-    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-  }
-  return out;
-}
-
-function macd(values, fast = 12, slow = 26, signalPeriod = 9) {
-  const emaFast = ema(values, fast);
-  const emaSlow = ema(values, slow);
-  const macdLine = values.map((_, i) =>
-    emaFast[i] != null && emaSlow[i] != null ? emaFast[i] - emaSlow[i] : null
-  );
-  const validStart = macdLine.findIndex(v => v != null);
-  const signalTail = validStart === -1 ? [] : ema(macdLine.slice(validStart), signalPeriod);
-  const signalLine = new Array(Math.max(validStart, 0)).fill(null).concat(signalTail);
-  const histogram = macdLine.map((v, i) =>
-    v != null && signalLine[i] != null ? v - signalLine[i] : null
-  );
-  return { macdLine, signalLine, histogram };
-}
+const { ema, rsi, macd } = Strategy;
 
 function toLineData(times, values) {
   return times
@@ -311,6 +409,254 @@ function setStatus(msg, isError) {
   statusEl.className = isError ? "error" : "";
 }
 
+// ---------- strategy config ----------
+const DEFAULT_CONFIG = {
+  swingLookback: 3,
+  indicators: {
+    emaCross: { enabled: true, fast: 20, slow: 50 },
+    rsi: { enabled: true, period: 14, oversold: 30, overbought: 70 },
+    macd: { enabled: true, fast: 12, slow: 26, signal: 9 },
+    srZones: { enabled: true, tolerancePct: 1.5, minTouches: 2, proximityPct: 1, maxZones: 4 },
+    trendlines: { enabled: true, tolerancePct: 0.75, minTouches: 2 },
+  },
+  confluence: { minBullish: 3, minBearish: 3 },
+  cooldownBars: 5,
+  risk: { stopMode: "zone", stopPct: 2, riskReward: 2 },
+};
+
+function readConfigFromForm() {
+  const num = (id) => Number(document.getElementById(id).value);
+  const bool = (id) => document.getElementById(id).checked;
+  return {
+    swingLookback: DEFAULT_CONFIG.swingLookback,
+    indicators: {
+      emaCross: { enabled: bool("cfg-emaCross-enabled"), fast: num("cfg-emaCross-fast"), slow: num("cfg-emaCross-slow") },
+      rsi: { enabled: bool("cfg-rsi-enabled"), period: num("cfg-rsi-period"), oversold: num("cfg-rsi-oversold"), overbought: num("cfg-rsi-overbought") },
+      macd: { enabled: bool("cfg-macd-enabled"), fast: num("cfg-macd-fast"), slow: num("cfg-macd-slow"), signal: num("cfg-macd-signal") },
+      srZones: { enabled: bool("cfg-srZones-enabled"), tolerancePct: num("cfg-srZones-tolerancePct"), minTouches: num("cfg-srZones-minTouches"), proximityPct: num("cfg-srZones-proximityPct"), maxZones: num("cfg-srZones-maxZones") },
+      trendlines: { enabled: bool("cfg-trendlines-enabled"), tolerancePct: num("cfg-trendlines-tolerancePct"), minTouches: num("cfg-trendlines-minTouches") },
+    },
+    confluence: { minBullish: num("cfg-minBullish"), minBearish: num("cfg-minBearish") },
+    cooldownBars: num("cfg-cooldown"),
+    risk: { stopMode: document.getElementById("cfg-stopMode").value, stopPct: num("cfg-stopPct"), riskReward: num("cfg-riskReward") },
+  };
+}
+
+function writeConfigToForm(cfg) {
+  const set = (id, val) => { document.getElementById(id).value = val; };
+  const setBool = (id, val) => { document.getElementById(id).checked = val; };
+  setBool("cfg-emaCross-enabled", cfg.indicators.emaCross.enabled);
+  set("cfg-emaCross-fast", cfg.indicators.emaCross.fast);
+  set("cfg-emaCross-slow", cfg.indicators.emaCross.slow);
+  setBool("cfg-rsi-enabled", cfg.indicators.rsi.enabled);
+  set("cfg-rsi-period", cfg.indicators.rsi.period);
+  set("cfg-rsi-oversold", cfg.indicators.rsi.oversold);
+  set("cfg-rsi-overbought", cfg.indicators.rsi.overbought);
+  setBool("cfg-macd-enabled", cfg.indicators.macd.enabled);
+  set("cfg-macd-fast", cfg.indicators.macd.fast);
+  set("cfg-macd-slow", cfg.indicators.macd.slow);
+  set("cfg-macd-signal", cfg.indicators.macd.signal);
+  setBool("cfg-srZones-enabled", cfg.indicators.srZones.enabled);
+  set("cfg-srZones-tolerancePct", cfg.indicators.srZones.tolerancePct);
+  set("cfg-srZones-minTouches", cfg.indicators.srZones.minTouches);
+  set("cfg-srZones-proximityPct", cfg.indicators.srZones.proximityPct);
+  set("cfg-srZones-maxZones", cfg.indicators.srZones.maxZones);
+  setBool("cfg-trendlines-enabled", cfg.indicators.trendlines.enabled);
+  set("cfg-trendlines-tolerancePct", cfg.indicators.trendlines.tolerancePct);
+  set("cfg-trendlines-minTouches", cfg.indicators.trendlines.minTouches);
+  set("cfg-minBullish", cfg.confluence.minBullish);
+  set("cfg-minBearish", cfg.confluence.minBearish);
+  set("cfg-cooldown", cfg.cooldownBars);
+  document.getElementById("cfg-stopMode").value = cfg.risk.stopMode;
+  set("cfg-stopPct", cfg.risk.stopPct);
+  set("cfg-riskReward", cfg.risk.riskReward);
+}
+
+const STORAGE_KEY = "cryptoApiStrategyConfig";
+function loadStoredConfig() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_CONFIG;
+    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+writeConfigToForm(loadStoredConfig());
+
+document.getElementById("toggleStrategyConfig").addEventListener("click", () => {
+  const el = document.getElementById("strategyConfig");
+  el.hidden = !el.hidden;
+});
+document.getElementById("resetStrategy").addEventListener("click", () => {
+  writeConfigToForm(DEFAULT_CONFIG);
+  localStorage.removeItem(STORAGE_KEY);
+  if (lastCandles) renderStrategy(convertCandles(lastCandles));
+});
+document.getElementById("applyStrategy").addEventListener("click", () => {
+  const cfg = readConfigFromForm();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+  if (lastCandles) renderStrategy(convertCandles(lastCandles));
+});
+
+// ---------- strategy rendering ----------
+let lastCandles = null; // raw USD candles from the last fetch
+let currentCurrency = "USD";
+let currentRate = 1;
+let zonePriceLines = [];
+let trendLineSeriesList = [];
+
+function convertCandles(candlesUsd) {
+  const conv = (v) => FX.convert(v, currentCurrency, currentRate);
+  return candlesUsd.map(c => ({ ...c, open: conv(c.open), high: conv(c.high), low: conv(c.low), close: conv(c.close) }));
+}
+
+FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
+  currentCurrency = currency;
+  currentRate = rate;
+  if (lastCandles) renderStrategy(convertCandles(lastCandles));
+});
+
+function clearZonesAndTrendlines() {
+  for (const line of zonePriceLines) candleSeries.removePriceLine(line);
+  zonePriceLines = [];
+  for (const series of trendLineSeriesList) priceChart.removeSeries(series);
+  trendLineSeriesList = [];
+}
+
+function renderZones(zones) {
+  for (const z of zones) {
+    const color = z.type === "support" ? "#26a69a" : "#ef5350";
+    const label = (z.type === "support" ? "S " : "R ") + "×" + z.touches;
+    zonePriceLines.push(candleSeries.createPriceLine({
+      price: z.priceHigh, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+      axisLabelVisible: true, title: label,
+    }));
+    zonePriceLines.push(candleSeries.createPriceLine({
+      price: z.priceLow, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+      axisLabelVisible: true, title: "",
+    }));
+  }
+}
+
+function renderTrendlines(trendlines, candles) {
+  const lastTime = candles[candles.length - 1].time;
+  for (const line of trendlines) {
+    const color = line.direction === "up" ? "#26a69a" : "#ef5350";
+    const series = priceChart.addLineSeries({
+      color, lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+      lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+    });
+    series.setData([
+      { time: line.t0, value: line.p0 },
+      { time: lastTime, value: Strategy.lineValueAt(line, lastTime) },
+    ]);
+    trendLineSeriesList.push(series);
+  }
+}
+
+function renderSignalsTable(signals) {
+  const tableEl = document.getElementById("signalsTable");
+  const summaryEl = document.getElementById("signalsSummary");
+  if (!signals.length) {
+    tableEl.innerHTML = '<div class="empty-note">No signals with the current strategy config over this range.</div>';
+    summaryEl.textContent = "0 signals";
+    return;
+  }
+  const buys = signals.filter(s => s.side === "buy").length;
+  const sells = signals.filter(s => s.side === "sell").length;
+  summaryEl.textContent = `${buys} buy · ${sells} sell`;
+
+  const rows = [...signals].reverse().slice(0, 25);
+  tableEl.innerHTML = `
+    <table>
+      <thead><tr><th>Time</th><th>Side</th><th class="num">Entry</th><th class="num">Stop loss</th><th class="num">Take profit</th><th class="num">Score</th></tr></thead>
+      <tbody>
+        ${rows.map(s => `
+          <tr>
+            <td>${new Date(s.time * 1000).toLocaleString()}</td>
+            <td><span class="side-badge ${s.side}">${s.side.toUpperCase()}</span></td>
+            <td class="num">${FX.formatConverted(s.price, currentCurrency)}</td>
+            <td class="num">${FX.formatConverted(s.stopLoss, currentCurrency)}</td>
+            <td class="num">${FX.formatConverted(s.takeProfit, currentCurrency)}</td>
+            <td class="num">${s.score > 0 ? "+" : ""}${s.score}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderStrategy(candles) {
+  const cfg = readConfigFromForm();
+  const times = candles.map(c => c.time);
+
+  // EMA overlay follows the emaCross indicator's configured periods
+  const priceTitleEl = document.getElementById("price-title");
+  if (cfg.indicators.emaCross.enabled) {
+    const fastVals = ema(candles.map(c => c.close), cfg.indicators.emaCross.fast);
+    const slowVals = ema(candles.map(c => c.close), cfg.indicators.emaCross.slow);
+    ema20Series.setData(toLineData(times, fastVals));
+    ema50Series.setData(toLineData(times, slowVals));
+    priceTitleEl.textContent = `Price — EMA ${cfg.indicators.emaCross.fast} / EMA ${cfg.indicators.emaCross.slow}`;
+  } else {
+    ema20Series.setData([]);
+    ema50Series.setData([]);
+    priceTitleEl.textContent = "Price";
+  }
+
+  // RSI panel follows the rsi indicator's configured period
+  const rsiTitleEl = document.getElementById("rsi-title");
+  if (cfg.indicators.rsi.enabled) {
+    const rsiValues = rsi(candles.map(c => c.close), cfg.indicators.rsi.period);
+    rsiSeries.setData(toLineData(times, rsiValues));
+    rsiTitleEl.textContent = `RSI (${cfg.indicators.rsi.period})`;
+    const lastRsi = [...rsiValues].reverse().find(v => v != null);
+    if (lastRsi != null) {
+      rsiValueEl.textContent = lastRsi.toFixed(1) + (lastRsi >= cfg.indicators.rsi.overbought ? " (overbought)" : lastRsi <= cfg.indicators.rsi.oversold ? " (oversold)" : "");
+      rsiValueEl.className = "panel-value " + (lastRsi >= cfg.indicators.rsi.overbought ? "down" : lastRsi <= cfg.indicators.rsi.oversold ? "up" : "");
+    }
+  } else {
+    rsiSeries.setData([]);
+    rsiTitleEl.textContent = "RSI (disabled)";
+    rsiValueEl.textContent = "—";
+    rsiValueEl.className = "panel-value";
+  }
+
+  // MACD panel follows the macd indicator's configured periods
+  const macdTitleEl = document.getElementById("macd-title");
+  if (cfg.indicators.macd.enabled) {
+    const { macdLine, signalLine, histogram } = macd(candles.map(c => c.close), cfg.indicators.macd.fast, cfg.indicators.macd.slow, cfg.indicators.macd.signal);
+    macdLineSeries.setData(toLineData(times, macdLine));
+    macdSignalSeries.setData(toLineData(times, signalLine));
+    macdHistSeries.setData(
+      times.map((t, i) => histogram[i] != null ? { time: t, value: histogram[i], color: histogram[i] >= 0 ? "#26a69a" : "#ef5350" } : null).filter(Boolean)
+    );
+    macdTitleEl.textContent = `MACD (${cfg.indicators.macd.fast}, ${cfg.indicators.macd.slow}, ${cfg.indicators.macd.signal})`;
+  } else {
+    macdLineSeries.setData([]);
+    macdSignalSeries.setData([]);
+    macdHistSeries.setData([]);
+    macdTitleEl.textContent = "MACD (disabled)";
+  }
+
+  // support/resistance zones, trend lines, and buy/sell signals
+  clearZonesAndTrendlines();
+  const result = Strategy.runStrategy(candles, cfg);
+  if (cfg.indicators.srZones.enabled) renderZones(result.zones);
+  if (cfg.indicators.trendlines.enabled) renderTrendlines(result.trendlines, candles);
+
+  candleSeries.setMarkers(result.signals.map(s => ({
+    time: s.time,
+    position: s.side === "buy" ? "belowBar" : "aboveBar",
+    color: s.side === "buy" ? "#26a69a" : "#ef5350",
+    shape: s.side === "buy" ? "arrowUp" : "arrowDown",
+    text: s.side.toUpperCase(),
+  })));
+
+  renderSignalsTable(result.signals);
+}
+
 async function loadIndicators() {
   const coin = document.getElementById("coin").value;
   const interval = document.getElementById("interval").value;
@@ -324,35 +670,11 @@ async function loadIndicators() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
 
-    const candles = body.candles;
-    const times = candles.map(c => c.time);
-    const closes = candles.map(c => c.close);
-
+    lastCandles = body.candles;
+    const candles = convertCandles(lastCandles);
     candleSeries.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
 
-    const ema20 = ema(closes, 20);
-    const ema50 = ema(closes, 50);
-    ema20Series.setData(toLineData(times, ema20));
-    ema50Series.setData(toLineData(times, ema50));
-
-    const rsiValues = rsi(closes, 14);
-    rsiSeries.setData(toLineData(times, rsiValues));
-    const lastRsi = [...rsiValues].reverse().find(v => v != null);
-    if (lastRsi != null) {
-      rsiValueEl.textContent = lastRsi.toFixed(1) + (lastRsi >= 70 ? " (overbought)" : lastRsi <= 30 ? " (oversold)" : "");
-      rsiValueEl.className = "panel-value " + (lastRsi >= 70 ? "down" : lastRsi <= 30 ? "up" : "");
-    }
-
-    const { macdLine, signalLine, histogram } = macd(closes, 12, 26, 9);
-    macdLineSeries.setData(toLineData(times, macdLine));
-    macdSignalSeries.setData(toLineData(times, signalLine));
-    macdHistSeries.setData(
-      times
-        .map((t, i) => histogram[i] != null
-          ? { time: t, value: histogram[i], color: histogram[i] >= 0 ? "#26a69a" : "#ef5350" }
-          : null)
-        .filter(Boolean)
-    );
+    renderStrategy(candles);
 
     charts.forEach(c => c.timeScale().fitContent());
     setStatus("Updated " + new Date().toLocaleTimeString());

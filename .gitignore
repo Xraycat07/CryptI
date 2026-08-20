@@ -1,7 +1,10 @@
 node_modules/
 *.log
 npm-debug.log*
+.env
+data/
 
 # one-off data pulls made during development, not part of the app
 *_365d.json
 *_binance_365d.json
+.env.example

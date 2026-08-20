@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api luno</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --accent: #4f8cff;
+
+    /* chart tokens (dark-surface steps from the validated reference palette) */
+    --chart-series: #3987e5;      /* sequential blue — magnitude */
+    --chart-series-soft: rgba(57, 135, 229, 0.16);
+    --chart-grid: #2c2c2a;
+    --chart-baseline: #383835;
+    --chart-good: #0ca30c;
+    --chart-critical: #e66767;
+
+    /* categorical — fixed order, do not reorder or reassign per-filter */
+    --cat-1: #3987e5; /* blue */
+    --cat-2: #d95926; /* orange */
+    --cat-3: #199e70; /* aqua */
+    --cat-4: #c98500; /* yellow */
+    --cat-5: #d55181; /* magenta */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  .luno-link {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .luno-link:hover { color: var(--text); border-color: var(--accent); }
+  .luno-link.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
+  button {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .secondary-btn { background: transparent; border-color: var(--border); color: var(--muted); }
+  .secondary-btn:hover { color: var(--text); border-color: var(--muted); filter: none; }
+  #status { font-size: 12px; color: var(--muted); }
+  #status.error { color: #ef5350; }
+
+  main { padding: 20px; max-width: 900px; margin: 0 auto; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* hero figure */
+  .hero-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .hero-value { font-size: 40px; font-weight: 600; letter-spacing: -0.01em; }
+  .hero-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* bar chart */
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; position: relative; }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-asset { flex: 0 0 56px; font-size: 12px; color: var(--text); font-weight: 500; }
+  .bar-track { flex: 1; position: relative; height: 20px; }
+  .bar-track svg { display: block; overflow: visible; }
+  .bar-value { flex: 0 0 auto; min-width: 84px; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar-hit { cursor: default; }
+  .bar-hit:hover + .bar-fill,
+  .bar-row:hover .bar-fill { filter: brightness(1.15); }
+
+  .chart-tooltip {
+    position: fixed;
+    z-index: 20;
+    background: #1c222c;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    max-width: 220px;
+  }
+  .chart-tooltip.visible { opacity: 1; }
+  .chart-tooltip .tt-title { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+  .chart-tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+  .chart-tooltip .tt-row strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tt-row .tt-name { display: inline-flex; align-items: center; gap: 6px; }
+  .tt-linekey { width: 10px; height: 2px; border-radius: 1px; flex: 0 0 10px; }
+
+  /* trend charts */
+  .trend-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .trend-head h2 { margin: 0; }
+  .trend-sub { font-size: 11px; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend-swatch { width: 10px; height: 2px; border-radius: 1px; flex: 0 0 10px; }
+  .trend-chart-wrap { position: relative; }
+  .trend-chart-wrap svg { display: block; width: 100%; height: 200px; overflow: visible; }
+  .trend-crosshair-line { stroke: var(--muted); stroke-width: 1; opacity: 0; pointer-events: none; }
+  .gridline { stroke: var(--chart-grid); stroke-width: 1; }
+  .baseline { stroke: var(--chart-baseline); stroke-width: 1; }
+  .axis-label { fill: var(--muted); font-size: 9px; }
+  .end-label { font-size: 10px; font-weight: 600; fill: var(--text); }
+  .trend-hit { position: absolute; inset: 0; cursor: crosshair; }
+  .trend-empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
+  .trend-disclaimer { margin-top: 10px; font-size: 11px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  tr:last-child td { border-bottom: none; }
+  .empty { text-align: center; color: var(--muted); padding: 24px 0; font-size: 13px; }
+  .side-BID, .side-BUY { color: #4caf7d; }
+  .side-ASK, .side-SELL { color: #ef5350; }
+  .muted-cell { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/predictions.html">Predictions</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <a href="/luno.html" class="luno-link active">🔒 Luno</a>
+  <button id="refresh">Refresh</button>
+  <button id="logout" class="secondary-btn">Log out</button>
+  <span id="status"></span>
+</header>
+
+<main>
+  <div class="panel">
+    <div class="hero-label">Total portfolio value</div>
+    <div class="hero-value" id="heroValue">—</div>
+    <div class="hero-sub" id="heroSub"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Holdings by value</h2>
+    <div id="barChart"></div>
+  </div>
+
+  <div class="panel">
+    <div class="trend-head">
+      <h2>Portfolio value trend</h2>
+      <span class="trend-sub">30d history + 7d projected &middot; at current holdings</span>
+    </div>
+    <div class="trend-chart-wrap" id="valueTrendChart"></div>
+    <div class="trend-disclaimer">Dashed segment is a naive straight-line extrapolation of the last 30 days, not a price forecast.</div>
+  </div>
+
+  <div class="panel">
+    <div class="trend-head">
+      <h2>Price trend</h2>
+      <span class="trend-sub">30d history + 7d projected &middot; % change, indexed to day 1</span>
+    </div>
+    <div id="pctTrendLegend" class="legend"></div>
+    <div class="trend-chart-wrap" id="pctTrendChart"></div>
+    <div class="trend-disclaimer">Dashed segments are a naive straight-line extrapolation per asset, not a price forecast.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Balances</h2>
+    <div id="balances"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Open orders</h2>
+    <div id="orders"></div>
+  </div>
+</main>
+
+<div class="chart-tooltip" id="tooltip">
+  <div class="tt-title" id="ttTitle"></div>
+  <div class="tt-row"><span>Holdings</span><strong id="ttQty"></strong></div>
+  <div class="tt-row"><span>Price</span><strong id="ttPrice"></strong></div>
+  <div class="tt-row"><span>Value</span><strong id="ttValue"></strong></div>
+</div>
+
+<div class="chart-tooltip" id="trendTooltip">
+  <div class="tt-title" id="trendTtTitle"></div>
+  <div id="trendTtRows"></div>
+</div>
+
+<script>
+const refreshBtn = document.getElementById("refresh");
+const statusEl = document.getElementById("status");
+const heroValueEl = document.getElementById("heroValue");
+const heroSubEl = document.getElementById("heroSub");
+const barChartEl = document.getElementById("barChart");
+const balancesEl = document.getElementById("balances");
+const ordersEl = document.getElementById("orders");
+const tooltipEl = document.getElementById("tooltip");
+const ttTitle = document.getElementById("ttTitle");
+const ttQty = document.getElementById("ttQty");
+const ttPrice = document.getElementById("ttPrice");
+const ttValue = document.getElementById("ttValue");
+const valueTrendChartEl = document.getElementById("valueTrendChart");
+const pctTrendChartEl = document.getElementById("pctTrendChart");
+const pctTrendLegendEl = document.getElementById("pctTrendLegend");
+const trendTooltipEl = document.getElementById("trendTooltip");
+const trendTtTitle = document.getElementById("trendTtTitle");
+const trendTtRows = document.getElementById("trendTtRows");
+const CATEGORICAL = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)", "var(--cat-5)"];
+const TREND_DAYS = 30;
+
+const zar = (n) => "R " + Number(n).toLocaleString("en-ZA", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const zarCompact = (n) => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return "R " + (n / 1_000_000).toFixed(2) + "M";
+  if (abs >= 1_000) return "R " + (n / 1_000).toFixed(1) + "K";
+  return zar(n);
+};
+const qty = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 8 });
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+// Price each held asset in ZAR using Luno's public tickers where a
+// {ASSET}ZAR market exists. ZAR itself is priced at 1. Assets with no ZAR
+// market (tokenized stocks/commodities, etc.) are surfaced with an unknown
+// price rather than guessed.
+function priceHoldings(balances, tickers) {
+  const priceByAsset = { ZAR: 1 };
+  for (const t of tickers) {
+    if (t.pair.endsWith("ZAR") && t.pair !== "ZAR") {
+      priceByAsset[t.pair.slice(0, -3)] = Number(t.last_trade);
+    }
+  }
+  return balances
+    .map((b) => {
+      const total = Number(b.balance) + Number(b.reserved);
+      const price = priceByAsset[b.asset] ?? null;
+      return {
+        asset: b.asset,
+        qty: total,
+        price,
+        value: price != null ? total * price : null,
+      };
+    })
+    .filter((h) => h.qty !== 0);
+}
+
+function renderHero(holdings) {
+  const priced = holdings.filter((h) => h.value != null);
+  const unpriced = holdings.filter((h) => h.value == null);
+  const total = priced.reduce((sum, h) => sum + h.value, 0);
+  heroValueEl.textContent = zar(total);
+  heroSubEl.textContent = unpriced.length
+    ? `Excludes ${unpriced.map((h) => h.asset).join(", ")} — no ZAR market price available`
+    : `Across ${priced.length} asset${priced.length === 1 ? "" : "s"}`;
+}
+
+function showTooltip(evt, h, value) {
+  ttTitle.textContent = h.asset;
+  ttQty.textContent = qty(h.qty);
+  ttPrice.textContent = h.price != null ? zar(h.price) : "—";
+  ttValue.textContent = zar(value);
+  tooltipEl.classList.add("visible");
+  positionTooltip(evt);
+}
+function positionTooltip(evt, el = tooltipEl) {
+  const pad = 14;
+  let x = evt.clientX + pad;
+  let y = evt.clientY + pad;
+  if (x + 220 > window.innerWidth) x = evt.clientX - 220 - pad;
+  if (y + 120 > window.innerHeight) y = evt.clientY - 120 - pad;
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+}
+function hideTooltip() {
+  tooltipEl.classList.remove("visible");
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function renderBarChart(holdings) {
+  const priced = holdings.filter((h) => h.value != null && h.value > 0).sort((a, b) => b.value - a.value);
+  barChartEl.innerHTML = "";
+  if (!priced.length) {
+    barChartEl.innerHTML = '<div class="empty">No priced holdings to chart.</div>';
+    return;
+  }
+  const max = priced[0].value;
+  const barHeight = 20;
+
+  for (const h of priced) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const label = document.createElement("div");
+    label.className = "bar-asset";
+    label.textContent = h.asset;
+
+    const track = document.createElement("div");
+    track.className = "bar-track";
+
+    const pct = Math.max(0.01, h.value / max);
+    const svg = svgEl("svg", { width: "100%", height: String(barHeight), viewBox: "0 0 100 " + barHeight, preserveAspectRatio: "none" });
+    const bg = svgEl("rect", { x: 0, y: 0, width: 100, height: barHeight, rx: 4, fill: "var(--chart-series-soft)" });
+    const fill = svgEl("rect", { x: 0, y: 0, width: String(pct * 100), height: barHeight, rx: 4, fill: "var(--chart-series)", class: "bar-fill" });
+    svg.appendChild(bg);
+    svg.appendChild(fill);
+    track.appendChild(svg);
+
+    const hit = document.createElement("div");
+    hit.className = "bar-hit";
+    hit.style.position = "absolute";
+    hit.style.inset = "0";
+    hit.addEventListener("pointermove", (evt) => showTooltip(evt, h, h.value));
+    hit.addEventListener("pointerleave", hideTooltip);
+    track.appendChild(hit);
+
+    const valueLabel = document.createElement("div");
+    valueLabel.className = "bar-value";
+    valueLabel.textContent = zarCompact(h.value);
+
+    row.appendChild(label);
+    row.appendChild(track);
+    row.appendChild(valueLabel);
+    barChartEl.appendChild(row);
+  }
+}
+
+function renderBalances(holdings) {
+  if (!holdings.length) {
+    balancesEl.innerHTML = '<div class="empty">No balances to show.</div>';
+    return;
+  }
+  const priced = holdings.filter((h) => h.value != null);
+  const total = priced.reduce((sum, h) => sum + h.value, 0);
+  const sorted = [...holdings].sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
+
+  balancesEl.innerHTML = "";
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead><tr>
+      <th>Asset</th><th class="num">Holdings</th><th class="num">Price (ZAR)</th>
+      <th class="num">Value (ZAR)</th><th class="num">% of portfolio</th>
+    </tr></thead>
+  `;
+  const tbody = document.createElement("tbody");
+  for (const h of sorted) {
+    const tr = document.createElement("tr");
+    const pct = h.value != null && total > 0 ? ((h.value / total) * 100).toFixed(1) + "%" : "—";
+    tr.innerHTML = `
+      <td>${h.asset}</td>
+      <td class="num">${qty(h.qty)}</td>
+      <td class="num${h.price == null ? " muted-cell" : ""}">${h.price != null ? zar(h.price) : "—"}</td>
+      <td class="num${h.value == null ? " muted-cell" : ""}">${h.value != null ? zar(h.value) : "—"}</td>
+      <td class="num muted-cell">${pct}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  balancesEl.appendChild(table);
+}
+
+function niceTicks(min, max, count = 4) {
+  if (min === max) { min -= 1; max += 1; }
+  const range = max - min;
+  const rawStep = range / (count - 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / mag;
+  let step;
+  if (norm < 1.5) step = 1 * mag;
+  else if (norm < 3) step = 2 * mag;
+  else if (norm < 7) step = 5 * mag;
+  else step = 10 * mag;
+  const niceMin = Math.floor(min / step) * step;
+  const niceMax = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let v = niceMin; v <= niceMax + step * 1e-6; v += step) ticks.push(v);
+  return ticks;
+}
+
+async function fetchHistory(asset) {
+  const res = await fetch(`/api/luno/history/${asset}?days=${TREND_DAYS}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body.candles || [];
+}
+
+// Fetches ZAR daily history for each priced, non-ZAR holding and intersects
+// their timestamps so the value trend and the % trend agree on the same days.
+async function buildTrendData(holdings) {
+  const zarBalance = holdings.find((h) => h.asset === "ZAR")?.qty || 0;
+  const priced = holdings.filter((h) => h.asset !== "ZAR" && h.price != null && h.qty > 0);
+  if (!priced.length) return { dates: [], valueSeries: [], pctSeries: [] };
+
+  const results = await Promise.allSettled(priced.map((h) => fetchHistory(h.asset)));
+  const byAsset = {};
+  priced.forEach((h, i) => {
+    if (results[i].status === "fulfilled" && results[i].value.length) byAsset[h.asset] = results[i].value;
+  });
+
+  const assets = Object.keys(byAsset);
+  if (!assets.length) return { dates: [], valueSeries: [], pctSeries: [] };
+
+  const tsSets = assets.map((a) => new Set(byAsset[a].map((c) => c.time)));
+  const common = [...tsSets[0]].filter((t) => tsSets.every((s) => s.has(t))).sort((a, b) => a - b);
+  if (common.length < 2) return { dates: [], valueSeries: [], pctSeries: [] };
+
+  const closeAt = {};
+  for (const a of assets) {
+    closeAt[a] = {};
+    for (const c of byAsset[a]) closeAt[a][c.time] = c.close;
+  }
+
+  const valueSeries = common.map((t) => {
+    let total = zarBalance;
+    for (const h of priced) {
+      if (closeAt[h.asset]) total += h.qty * closeAt[h.asset][t];
+    }
+    return total;
+  });
+
+  const pctSeries = priced
+    .filter((h) => closeAt[h.asset])
+    .map((h) => {
+      const base = closeAt[h.asset][common[0]];
+      return { asset: h.asset, value: h.value, points: common.map((t) => ((closeAt[h.asset][t] - base) / base) * 100) };
+    });
+
+  return { dates: common, valueSeries, pctSeries };
+}
+
+const VB_W = 640, VB_H = 200, PAD_L = 44, PAD_R = 10, PAD_T = 10, PAD_B = 26;
+const PLOT_W = VB_W - PAD_L - PAD_R;
+const PLOT_H = VB_H - PAD_T - PAD_B;
+const xAt = (i, n) => PAD_L + (n <= 1 ? 0 : (i / (n - 1)) * PLOT_W);
+const yAt = (v, min, max) => PAD_T + (1 - (v - min) / (max - min)) * PLOT_H;
+const shortDate = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const PROJECT_DAYS = 7;
+
+// Naive least-squares line through the actual series, extended forward —
+// a statistical extrapolation of the recent trend, not a price forecast.
+function linearFit(ys) {
+  const n = ys.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) { sumX += i; sumY += ys[i]; sumXY += i * ys[i]; sumXX += i * i; }
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+function projectForward(ys, days) {
+  const { slope, intercept } = linearFit(ys);
+  const n = ys.length;
+  return Array.from({ length: days }, (_, i) => slope * (n + i) + intercept);
+}
+function extendDates(dates, days) {
+  const last = dates[dates.length - 1];
+  const step = dates.length > 1 ? last - dates[dates.length - 2] : 86400000;
+  return Array.from({ length: days }, (_, i) => last + step * (i + 1));
+}
+
+function attachCrosshairHit(container, svg, n, onMove, onLeave) {
+  const hit = document.createElement("div");
+  hit.className = "trend-hit";
+  hit.addEventListener("pointermove", (evt) => {
+    const rect = svg.getBoundingClientRect();
+    const relX = (evt.clientX - rect.left) / rect.width;
+    const dataX = (relX * VB_W - PAD_L) / PLOT_W;
+    const i = Math.max(0, Math.min(n - 1, Math.round(dataX * (n - 1))));
+    onMove(evt, i);
+  });
+  hit.addEventListener("pointerleave", onLeave);
+  container.appendChild(hit);
+}
+
+function renderValueTrend(dates, values) {
+  valueTrendChartEl.innerHTML = "";
+  if (dates.length < 2) {
+    const empty = document.createElement("div");
+    empty.className = "trend-empty";
+    empty.textContent = "Not enough priced history yet.";
+    valueTrendChartEl.appendChild(empty);
+    return;
+  }
+  const nActual = dates.length;
+  const projected = projectForward(values, PROJECT_DAYS);
+  const allDates = [...dates, ...extendDates(dates, PROJECT_DAYS)];
+  const allValues = [...values, ...projected];
+  const n = allDates.length;
+
+  const min = Math.min(...allValues), max = Math.max(...allValues);
+  const ticks = niceTicks(min, max, 4);
+  const yMin = Math.min(min, ticks[0]), yMax = Math.max(max, ticks[ticks.length - 1]);
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${VB_W} ${VB_H}`, preserveAspectRatio: "none" });
+
+  for (const t of ticks) {
+    const y = yAt(t, yMin, yMax);
+    svg.appendChild(svgEl("line", { x1: PAD_L, x2: VB_W - PAD_R, y1: y, y2: y, class: "gridline" }));
+    const label = svgEl("text", { x: 2, y: y + 3, class: "axis-label" });
+    label.textContent = zarCompact(t);
+    svg.appendChild(label);
+  }
+
+  // actual: solid line + area fill
+  const actualPts = values.map((v, i) => `${xAt(i, n)},${yAt(v, yMin, yMax)}`).join(" ");
+  const areaPts = `${xAt(0, n)},${PAD_T + PLOT_H} ${actualPts} ${xAt(nActual - 1, n)},${PAD_T + PLOT_H}`;
+  svg.appendChild(svgEl("polygon", { points: areaPts, fill: "var(--chart-series-soft)", stroke: "none" }));
+  svg.appendChild(svgEl("polyline", { points: actualPts, fill: "none", stroke: "var(--chart-series)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+  // projected: dashed, faded continuation from the last actual point
+  const projPts = [values[nActual - 1], ...projected]
+    .map((v, i) => `${xAt(nActual - 1 + i, n)},${yAt(v, yMin, yMax)}`)
+    .join(" ");
+  svg.appendChild(svgEl("polyline", { points: projPts, fill: "none", stroke: "var(--chart-series)", "stroke-width": 2, "stroke-dasharray": "5 4", opacity: 0.55, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  const sepX = xAt(nActual - 1, n);
+  svg.appendChild(svgEl("line", { x1: sepX, x2: sepX, y1: PAD_T, y2: PAD_T + PLOT_H, class: "baseline", "stroke-dasharray": "2 3" }));
+
+  for (const i of [0, nActual - 1, n - 1]) {
+    const label = svgEl("text", { x: xAt(i, n), y: VB_H - 6, class: "axis-label", "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle" });
+    label.textContent = i === nActual - 1 ? "today" : shortDate(allDates[i]);
+    svg.appendChild(label);
+  }
+
+  const crosshair = svgEl("line", { x1: 0, x2: 0, y1: PAD_T, y2: PAD_T + PLOT_H, class: "trend-crosshair-line" });
+  const dot = svgEl("circle", { r: 4, fill: "var(--chart-series)", stroke: "var(--panel)", "stroke-width": 2, opacity: 0 });
+  svg.appendChild(crosshair);
+  svg.appendChild(dot);
+  valueTrendChartEl.appendChild(svg);
+
+  attachCrosshairHit(valueTrendChartEl, svg, n, (evt, i) => {
+    const isProjected = i > nActual - 1;
+    const x = xAt(i, n), y = yAt(allValues[i], yMin, yMax);
+    crosshair.setAttribute("x1", x); crosshair.setAttribute("x2", x); crosshair.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("opacity", isProjected ? 0.55 : 1);
+
+    trendTtTitle.textContent = new Date(allDates[i]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) + (isProjected ? " (projected)" : "");
+    trendTtRows.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "tt-row";
+    const label = document.createElement("span");
+    label.textContent = "Value";
+    const val = document.createElement("strong");
+    val.textContent = zar(allValues[i]);
+    row.appendChild(label);
+    row.appendChild(val);
+    trendTtRows.appendChild(row);
+    trendTooltipEl.classList.add("visible");
+    positionTooltip(evt, trendTooltipEl);
+  }, () => {
+    crosshair.setAttribute("opacity", 0);
+    dot.setAttribute("opacity", 0);
+    trendTooltipEl.classList.remove("visible");
+  });
+}
+
+function renderPctTrend(dates, series) {
+  pctTrendChartEl.innerHTML = "";
+  pctTrendLegendEl.innerHTML = "";
+  if (dates.length < 2 || !series.length) {
+    const empty = document.createElement("div");
+    empty.className = "trend-empty";
+    empty.textContent = "Not enough priced history yet.";
+    pctTrendChartEl.appendChild(empty);
+    return;
+  }
+
+  // Color identity is assigned by asset (alphabetical), not by value rank —
+  // so a series keeps its color across refreshes even if holdings re-rank.
+  const shown = series.length > CATEGORICAL.length
+    ? [...series].sort((a, b) => b.value - a.value).slice(0, CATEGORICAL.length)
+    : series;
+  const colorByAsset = {};
+  [...shown].map((s) => s.asset).sort().forEach((asset, i) => { colorByAsset[asset] = CATEGORICAL[i]; });
+  const colored = shown.map((s) => ({ ...s, color: colorByAsset[s.asset] })).sort((a, b) => b.value - a.value);
+
+  for (const s of colored) {
+    const item = document.createElement("div");
+    item.className = "legend-item";
+    const sw = document.createElement("span");
+    sw.className = "legend-swatch";
+    sw.style.background = s.color;
+    const label = document.createElement("span");
+    label.textContent = s.asset;
+    item.appendChild(sw);
+    item.appendChild(label);
+    pctTrendLegendEl.appendChild(item);
+  }
+
+  const nActual = dates.length;
+  const allDates = [...dates, ...extendDates(dates, PROJECT_DAYS)];
+  const n = allDates.length;
+  const projectedByAsset = {};
+  for (const s of colored) projectedByAsset[s.asset] = projectForward(s.points, PROJECT_DAYS);
+
+  const allVals = colored.flatMap((s) => [...s.points, ...projectedByAsset[s.asset]]);
+  const min = Math.min(0, ...allVals), max = Math.max(0, ...allVals);
+  const ticks = niceTicks(min, max, 4);
+  const yMin = Math.min(min, ticks[0]), yMax = Math.max(max, ticks[ticks.length - 1]);
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${VB_W} ${VB_H}`, preserveAspectRatio: "none" });
+
+  for (const t of ticks) {
+    const y = yAt(t, yMin, yMax);
+    svg.appendChild(svgEl("line", { x1: PAD_L, x2: VB_W - PAD_R, y1: y, y2: y, class: Math.abs(t) < 1e-9 ? "baseline" : "gridline" }));
+    const label = svgEl("text", { x: 2, y: y + 3, class: "axis-label" });
+    label.textContent = t.toFixed(0) + "%";
+    svg.appendChild(label);
+  }
+
+  for (const s of colored) {
+    const pts = s.points.map((v, i) => `${xAt(i, n)},${yAt(v, yMin, yMax)}`).join(" ");
+    svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    const proj = projectedByAsset[s.asset];
+    const projPts = [s.points[nActual - 1], ...proj]
+      .map((v, i) => `${xAt(nActual - 1 + i, n)},${yAt(v, yMin, yMax)}`)
+      .join(" ");
+    svg.appendChild(svgEl("polyline", { points: projPts, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-dasharray": "5 4", opacity: 0.55, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    const lastY = yAt(proj[proj.length - 1], yMin, yMax);
+    svg.appendChild(svgEl("circle", { cx: xAt(n - 1, n), cy: lastY, r: 4, fill: s.color, stroke: "var(--panel)", "stroke-width": 2, opacity: 0.55 }));
+  }
+  const sepX = xAt(nActual - 1, n);
+  svg.appendChild(svgEl("line", { x1: sepX, x2: sepX, y1: PAD_T, y2: PAD_T + PLOT_H, class: "baseline", "stroke-dasharray": "2 3" }));
+
+  // End-of-line labels (at the projected tip), skipping any that would
+  // collide (< 11px apart) — those series still carry identity via the
+  // legend swatch and the tooltip.
+  const MIN_LABEL_GAP = 11;
+  let lastLabelY = -Infinity;
+  const byFinalY = [...colored].sort((a, b) => yAt(projectedByAsset[a.asset].at(-1), yMin, yMax) - yAt(projectedByAsset[b.asset].at(-1), yMin, yMax));
+  for (const s of byFinalY) {
+    const lastY = yAt(projectedByAsset[s.asset].at(-1), yMin, yMax);
+    if (lastY - lastLabelY < MIN_LABEL_GAP) continue;
+    lastLabelY = lastY;
+    const endLabel = svgEl("text", { x: xAt(n - 1, n) + 6, y: lastY + 3, class: "end-label" });
+    endLabel.textContent = s.asset;
+    svg.appendChild(endLabel);
+  }
+
+  for (const i of [0, nActual - 1, n - 1]) {
+    const label = svgEl("text", { x: xAt(i, n), y: VB_H - 6, class: "axis-label", "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle" });
+    label.textContent = i === nActual - 1 ? "today" : shortDate(allDates[i]);
+    svg.appendChild(label);
+  }
+
+  const crosshair = svgEl("line", { x1: 0, x2: 0, y1: PAD_T, y2: PAD_T + PLOT_H, class: "trend-crosshair-line" });
+  svg.appendChild(crosshair);
+  pctTrendChartEl.appendChild(svg);
+
+  attachCrosshairHit(pctTrendChartEl, svg, n, (evt, i) => {
+    const isProjected = i > nActual - 1;
+    const x = xAt(i, n);
+    crosshair.setAttribute("x1", x); crosshair.setAttribute("x2", x); crosshair.setAttribute("opacity", 1);
+
+    trendTtTitle.textContent = new Date(allDates[i]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) + (isProjected ? " (projected)" : "");
+    trendTtRows.innerHTML = "";
+    const valueAt = (s) => (isProjected ? projectedByAsset[s.asset][i - nActual] : s.points[i]);
+    for (const s of [...colored].sort((a, b) => valueAt(b) - valueAt(a))) {
+      const row = document.createElement("div");
+      row.className = "tt-row";
+      const nameWrap = document.createElement("span");
+      nameWrap.className = "tt-name";
+      const key = document.createElement("span");
+      key.className = "tt-linekey";
+      key.style.background = s.color;
+      const label = document.createElement("span");
+      label.textContent = s.asset;
+      nameWrap.appendChild(key);
+      nameWrap.appendChild(label);
+      const val = document.createElement("strong");
+      const v = valueAt(s);
+      val.textContent = (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+      row.appendChild(nameWrap);
+      row.appendChild(val);
+      trendTtRows.appendChild(row);
+    }
+    trendTooltipEl.classList.add("visible");
+    positionTooltip(evt, trendTooltipEl);
+  }, () => {
+    crosshair.setAttribute("opacity", 0);
+    trendTooltipEl.classList.remove("visible");
+  });
+}
+
+function renderOrders(rows) {
+  if (!rows.length) {
+    ordersEl.innerHTML = '<div class="empty">No open orders.</div>';
+    return;
+  }
+  ordersEl.innerHTML = `
+    <table>
+      <thead><tr><th>Pair</th><th>Side</th><th class="num">Volume</th><th class="num">Price</th><th>Created</th></tr></thead>
+      <tbody>
+        ${rows.map(o => `
+          <tr>
+            <td>${o.pair}</td>
+            <td class="side-${o.type}">${o.type}</td>
+            <td class="num">${qty(o.limit_volume ?? o.base ?? 0)}</td>
+            <td class="num">${Number(o.limit_price ?? o.price ?? 0).toLocaleString()}</td>
+            <td>${o.creation_timestamp ? new Date(Number(o.creation_timestamp)).toLocaleString() : ""}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+async function loadAll() {
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+  try {
+    const [balRes, ordRes, mktRes] = await Promise.all([
+      fetch("/api/luno/balance"),
+      fetch("/api/luno/orders"),
+      fetch("/api/luno/market"),
+    ]);
+    const balBody = await balRes.json();
+    const ordBody = await ordRes.json();
+    const mktBody = await mktRes.json();
+    if (!balRes.ok) throw new Error(balBody.error || balRes.statusText);
+    if (!ordRes.ok) throw new Error(ordBody.error || ordRes.statusText);
+    if (!mktRes.ok) throw new Error(mktBody.error || mktRes.statusText);
+
+    const holdings = priceHoldings(balBody.balance || [], mktBody.tickers || []);
+    renderHero(holdings);
+    renderBarChart(holdings);
+    renderBalances(holdings);
+    renderOrders(ordBody.orders || []);
+
+    try {
+      const { dates, valueSeries, pctSeries } = await buildTrendData(holdings);
+      renderValueTrend(dates, valueSeries);
+      renderPctTrend(dates, pctSeries);
+    } catch (trendErr) {
+      const msg = document.createElement("div");
+      msg.className = "trend-empty";
+      msg.textContent = "Trend unavailable: " + trendErr.message;
+      valueTrendChartEl.innerHTML = "";
+      valueTrendChartEl.appendChild(msg);
+      pctTrendChartEl.innerHTML = "";
+      pctTrendLegendEl.innerHTML = "";
+    }
+
+    setStatus(`Updated ${new Date().toLocaleTimeString()}`);
+  } catch (err) {
+    heroValueEl.textContent = "—";
+    heroSubEl.textContent = "";
+    barChartEl.innerHTML = "";
+    balancesEl.innerHTML = "";
+    ordersEl.innerHTML = "";
+    valueTrendChartEl.innerHTML = "";
+    pctTrendChartEl.innerHTML = "";
+    pctTrendLegendEl.innerHTML = "";
+    setStatus("Error: " + err.message, true);
+  } finally {
+    refreshBtn.disabled = false;
+  }
+}
+
+document.getElementById("logout").addEventListener("click", async () => {
+  await fetch("/api/luno/logout", { method: "POST" });
+  window.location.href = "/luno.html";
+});
+
+refreshBtn.addEventListener("click", loadAll);
+loadAll();
+</script>
+
+</body>
+</html>

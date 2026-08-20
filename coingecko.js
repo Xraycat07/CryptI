@@ -1,5 +1,8 @@
 const BASE_URL = "https://api.coingecko.com/api/v3";
-const DEFAULT_COINS = ["bitcoin", "ethereum", "ripple", "litecoin", "dogecoin", "solana"];
+const DEFAULT_COINS = [
+  "bitcoin", "ethereum", "ripple", "litecoin", "dogecoin", "solana",
+  "cardano", "polkadot", "chainlink", "avalanche-2", "polygon-ecosystem-token", "uniswap",
+];
 
 const priceCache = new Map(); // key: sorted coin ids -> { data, expiresAt }
 const PRICE_TTL_MS = 60_000;
@@ -34,6 +37,23 @@ async function getPrices(coins = DEFAULT_COINS, { force = false } = {}) {
   return { data, cached: false };
 }
 
+const fxCache = { rate: null, expiresAt: 0 };
+const FX_TTL_MS = 5 * 60_000;
+
+// USD->ZAR rate, derived from a USD-pegged stablecoin's own ZAR quote rather
+// than a separate forex API — reuses the same CoinGecko dependency already
+// in place for prices.
+async function getUsdZarRate({ force = false } = {}) {
+  if (!force && fxCache.rate && fxCache.expiresAt > Date.now()) {
+    return { rate: fxCache.rate, cached: true };
+  }
+  const data = await fetchJson(`/simple/price?ids=usd-coin&vs_currencies=usd,zar`);
+  const rate = data["usd-coin"].zar / data["usd-coin"].usd;
+  fxCache.rate = rate;
+  fxCache.expiresAt = Date.now() + FX_TTL_MS;
+  return { rate, cached: false };
+}
+
 async function getDailyHistory(coin, days) {
   return fetchJson(`/coins/${coin}/market_chart?vs_currency=usd&days=${days}&interval=daily`);
 }
@@ -49,4 +69,4 @@ async function getHourlyHistory(coin, hours) {
   };
 }
 
-module.exports = { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory };
+module.exports = { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate };

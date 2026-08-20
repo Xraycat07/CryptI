@@ -1,3 +1,5 @@
+const history = require("./history");
+
 const BASE_URL = "https://api.exchange.coinbase.com";
 
 // Maps our CoinGecko-style coin ids to Coinbase Exchange product ids.
@@ -8,6 +10,12 @@ const SYMBOL_MAP = {
   litecoin: "LTC-USD",
   dogecoin: "DOGE-USD",
   solana: "SOL-USD",
+  cardano: "ADA-USD",
+  polkadot: "DOT-USD",
+  chainlink: "LINK-USD",
+  "avalanche-2": "AVAX-USD",
+  "polygon-ecosystem-token": "POL-USD",
+  uniswap: "UNI-USD",
 };
 
 // Coinbase's public candles endpoint only supports these granularities (seconds).
@@ -68,6 +76,116 @@ function aggregateWeekly(dailyCandlesAsc) {
   return groups.reverse();
 }
 
+function aggregateMonthly(dailyCandlesAsc) {
+  const groups = [];
+  let currentKey = null;
+  let chunk = [];
+  for (const c of dailyCandlesAsc) {
+    const d = new Date(c.time * 1000);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    if (key !== currentKey) {
+      if (chunk.length) groups.push(chunk);
+      chunk = [];
+      currentKey = key;
+    }
+    chunk.push(c);
+  }
+  if (chunk.length) groups.push(chunk);
+
+  // drop a trailing in-progress (current calendar month) group
+  const last = groups[groups.length - 1];
+  if (last) {
+    const lastDate = new Date(last[last.length - 1].time * 1000);
+    const now = new Date();
+    if (lastDate.getUTCFullYear() === now.getUTCFullYear() && lastDate.getUTCMonth() === now.getUTCMonth()) {
+      groups.pop();
+    }
+  }
+
+  return groups.map((c) => ({
+    time: c[0].time,
+    open: c[0].open,
+    close: c[c.length - 1].close,
+    high: Math.max(...c.map((x) => x.high)),
+    low: Math.min(...c.map((x) => x.low)),
+    volume: c.reduce((sum, x) => sum + x.volume, 0),
+  }));
+}
+
+// Groups consecutive monthly candles into fixed-size spans (e.g. 3 for
+// quarterly, 12 for yearly). Not calendar-quarter-aligned — just N months
+// at a time, dropping a leftover partial span at the (most recent) end.
+function aggregateFromMonthly(monthlyCandlesAsc, groupSize) {
+  const out = [];
+  for (let i = 0; i < monthlyCandlesAsc.length; i += groupSize) {
+    const chunk = monthlyCandlesAsc.slice(i, i + groupSize);
+    if (chunk.length < groupSize) continue;
+    out.push({
+      time: chunk[0].time,
+      open: chunk[0].open,
+      close: chunk[chunk.length - 1].close,
+      high: Math.max(...chunk.map((x) => x.high)),
+      low: Math.min(...chunk.map((x) => x.low)),
+      volume: chunk.reduce((sum, x) => sum + x.volume, 0),
+    });
+  }
+  return out;
+}
+
+async function fetchDailyCandlesRange(product, startISO, endISO) {
+  const res = await fetch(
+    `${BASE_URL}/products/${product}/candles?granularity=${GRANULARITY_SECONDS["1d"]}&start=${startISO}&end=${endISO}`,
+    { headers: { "User-Agent": "crypto-api" } }
+  );
+  const body = await res.json();
+  if (!res.ok || body.message) {
+    const err = new Error(body.message || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
+  return body
+    .map(([time, low, high, open, close, volume]) => ({
+      time, open: Number(open), high: Number(high), low: Number(low), close: Number(close), volume: Number(volume),
+    }))
+    .reverse();
+}
+
+const DAY_SECONDS = 86400;
+// Only used by the one-time backfill below (not per-request), so this can
+// be generous: 12 x 300 days ≈ 9.9 years — comfortably covers Coinbase's
+// full listing history for the older majors.
+const MAX_HISTORY_PAGES = 12;
+
+// Coinbase's candles endpoint caps a single request at 300 points, so
+// multi-year history (needed for quarterly/yearly candles) is built by
+// paging backward with the start/end range params, stopping early once we
+// run out of listed history for that product.
+async function fetchDailyCandlesPaginated(product, totalDays) {
+  const all = [];
+  let end = new Date();
+  let remaining = totalDays;
+  for (let page = 0; page < MAX_HISTORY_PAGES && remaining > 0; page++) {
+    const chunkDays = Math.min(MAX_CANDLES_PER_REQUEST, remaining);
+    const start = new Date(end.getTime() - chunkDays * DAY_SECONDS * 1000);
+    let chunk;
+    try {
+      chunk = await fetchDailyCandlesRange(product, start.toISOString(), end.toISOString());
+    } catch {
+      break; // likely before the product's listing date — stop paginating
+    }
+    if (!chunk.length) break;
+    all.unshift(...chunk);
+    end = new Date((chunk[0].time - DAY_SECONDS) * 1000);
+    remaining -= chunkDays;
+  }
+  const merged = new Map();
+  for (const c of all) merged.set(c.time, c);
+  return [...merged.values()].sort((a, b) => a.time - b.time);
+}
+
+const AGGREGATE_INTERVALS = { "1w": aggregateWeekly, "1M": aggregateMonthly };
+const LONG_AGGREGATE_INTERVALS = { "3M": { groupMonths: 3 }, "1Y": { groupMonths: 12 } };
+
 async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
   const product = SYMBOL_MAP[coin.toLowerCase()];
   if (!product) {
@@ -76,15 +194,31 @@ async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
     throw err;
   }
 
-  if (interval === "1w") {
+  const aggregator = AGGREGATE_INTERVALS[interval];
+  if (aggregator) {
     const daily = await fetchRawCandles(product, GRANULARITY_SECONDS["1d"], MAX_CANDLES_PER_REQUEST);
-    const weekly = aggregateWeekly(daily);
-    return weekly.slice(-limit);
+    return aggregator(daily).slice(-limit);
+  }
+
+  const longAgg = LONG_AGGREGATE_INTERVALS[interval];
+  if (longAgg) {
+    // Depth comes from the local archive (backfilled once, then grown daily
+    // — see backfillHistoryIfNeeded/recordRecentHistory), so the live call
+    // here only needs a single cheap page to cover whatever's happened
+    // since the archive's last write.
+    const [stored, live] = await Promise.all([
+      history.loadStoredDaily(product),
+      fetchRawCandles(product, GRANULARITY_SECONDS["1d"], MAX_CANDLES_PER_REQUEST),
+    ]);
+    const daily = history.mergeDedupe(stored, live);
+    const monthly = aggregateMonthly(daily);
+    return aggregateFromMonthly(monthly, longAgg.groupMonths).slice(-limit);
   }
 
   const granularity = GRANULARITY_SECONDS[interval];
   if (!granularity) {
-    const err = new Error(`Unsupported interval "${interval}". Allowed: ${[...Object.keys(GRANULARITY_SECONDS), "1w"].join(", ")}`);
+    const allowed = [...Object.keys(GRANULARITY_SECONDS), ...Object.keys(AGGREGATE_INTERVALS), ...Object.keys(LONG_AGGREGATE_INTERVALS)].join(", ");
+    const err = new Error(`Unsupported interval "${interval}". Allowed: ${allowed}`);
     err.status = 400;
     throw err;
   }
@@ -92,4 +226,40 @@ async function getCandles(coin, { interval = "1d", limit = 300 } = {}) {
   return fetchRawCandles(product, granularity, Math.min(MAX_CANDLES_PER_REQUEST, limit));
 }
 
-module.exports = { getCandles, SYMBOL_MAP };
+// Pulls a small recent window (cheap: 1 request/product) and merges any new
+// days into the local archive. Call this periodically (see server.js) so
+// history keeps accumulating day over day instead of only ever reflecting
+// however far Coinbase happens to paginate on demand.
+async function recordRecentHistory() {
+  for (const product of Object.values(SYMBOL_MAP)) {
+    try {
+      const recent = await fetchRawCandles(product, GRANULARITY_SECONDS["1d"], 5);
+      const stored = await history.loadStoredDaily(product);
+      await history.saveStoredDaily(product, history.mergeDedupe(stored, recent));
+    } catch (err) {
+      console.error(`recordRecentHistory: ${product} failed — ${err.message}`);
+    }
+  }
+}
+
+// One-time deep backfill so the local archive starts with real depth
+// instead of slowly accumulating five days at a time. Safe to call on every
+// startup — skips any product that already has substantial history stored.
+const BACKFILL_MIN_DAYS = 200;
+
+async function backfillHistoryIfNeeded() {
+  for (const product of Object.values(SYMBOL_MAP)) {
+    try {
+      const stored = await history.loadStoredDaily(product);
+      if (stored.length >= BACKFILL_MIN_DAYS) continue;
+      const deep = await fetchDailyCandlesPaginated(product, MAX_HISTORY_PAGES * MAX_CANDLES_PER_REQUEST);
+      const merged = history.mergeDedupe(stored, deep);
+      await history.saveStoredDaily(product, merged);
+      console.log(`backfillHistoryIfNeeded: ${product} now has ${merged.length} days stored`);
+    } catch (err) {
+      console.error(`backfillHistoryIfNeeded: ${product} failed — ${err.message}`);
+    }
+  }
+}
+
+module.exports = { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded };
