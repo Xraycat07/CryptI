@@ -253,40 +253,10 @@
 <main>
   <div class="panel">
     <div class="panel-header">
-      <span class="panel-title" id="price-title">Price &mdash; EMA 20 / EMA 50</span>
-      <div class="legend-inline">
-        <span><span class="swatch" style="background:#e6b400"></span>EMA 20</span>
-        <span><span class="swatch" style="background:#4f8cff"></span>EMA 50</span>
-      </div>
-    </div>
-    <div id="price-chart"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-header">
-      <span class="panel-title" id="rsi-title">RSI (14)</span>
-      <span class="panel-value" id="rsi-value">—</span>
-    </div>
-    <div id="rsi-chart"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-header">
-      <span class="panel-title" id="macd-title">MACD</span>
-      <div class="legend-inline">
-        <span><span class="swatch" style="background:#4f8cff"></span>MACD</span>
-        <span><span class="swatch" style="background:#e6b400"></span>Signal</span>
-      </div>
-    </div>
-    <div id="macd-chart"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-header">
       <span class="panel-title">Strategy</span>
-      <button id="toggleStrategyConfig" class="secondary-btn" type="button">Configure</button>
+      <button id="toggleStrategyConfig" class="secondary-btn" type="button">Hide</button>
     </div>
-    <div id="strategyConfig" hidden>
+    <div id="strategyConfig">
       <div class="strategy-grid">
         <div class="cfg-card">
           <div class="cfg-title"><label><input type="checkbox" id="cfg-emaCross-enabled" checked> EMA cross</label></div>
@@ -338,9 +308,39 @@
       <div class="strategy-actions">
         <button id="applyStrategy" type="button">Apply strategy</button>
         <button id="resetStrategy" class="secondary-btn" type="button">Reset to defaults</button>
-        <span class="strategy-hint">Saved locally in this browser. New indicators can be added via <code>Strategy.registerIndicator()</code> in strategy.js.</span>
+        <span class="strategy-hint">Filters apply live as you change them &mdash; saved locally in this browser. New indicators can be added via <code>Strategy.registerIndicator()</code> in strategy.js.</span>
       </div>
     </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title" id="price-title">Price &mdash; EMA 20 / EMA 50</span>
+      <div class="legend-inline">
+        <span><span class="swatch" style="background:#e6b400"></span>EMA 20</span>
+        <span><span class="swatch" style="background:#4f8cff"></span>EMA 50</span>
+      </div>
+    </div>
+    <div id="price-chart"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title" id="rsi-title">RSI (14)</span>
+      <span class="panel-value" id="rsi-value">—</span>
+    </div>
+    <div id="rsi-chart"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title" id="macd-title">MACD</span>
+      <div class="legend-inline">
+        <span><span class="swatch" style="background:#4f8cff"></span>MACD</span>
+        <span><span class="swatch" style="background:#e6b400"></span>Signal</span>
+      </div>
+    </div>
+    <div id="macd-chart"></div>
   </div>
 
   <div class="panel">
@@ -419,19 +419,7 @@ function setStatus(msg, isError) {
 }
 
 // ---------- strategy config ----------
-const DEFAULT_CONFIG = {
-  swingLookback: 3,
-  indicators: {
-    emaCross: { enabled: true, fast: 20, slow: 50 },
-    rsi: { enabled: true, period: 14, oversold: 30, overbought: 70 },
-    macd: { enabled: true, fast: 12, slow: 26, signal: 9 },
-    srZones: { enabled: true, tolerancePct: 1.5, minTouches: 2, proximityPct: 1, maxZones: 4 },
-    trendlines: { enabled: true, tolerancePct: 0.75, minTouches: 2 },
-  },
-  confluence: { minBullish: 3, minBearish: 3 },
-  cooldownBars: 5,
-  risk: { stopMode: "zone", stopPct: 2, riskReward: 2 },
-};
+const DEFAULT_CONFIG = Strategy.DEFAULT_CONFIG;
 
 function readConfigFromForm() {
   const num = (id) => Number(document.getElementById(id).value);
@@ -481,30 +469,28 @@ function writeConfigToForm(cfg) {
   set("cfg-riskReward", cfg.risk.riskReward);
 }
 
-const STORAGE_KEY = "cryptoApiStrategyConfig";
-function loadStoredConfig() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_CONFIG;
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_CONFIG;
-  }
-}
-writeConfigToForm(loadStoredConfig());
+const STORAGE_KEY = Strategy.STRATEGY_CONFIG_STORAGE_KEY;
+writeConfigToForm(Strategy.loadStoredStrategyConfig());
 
-document.getElementById("toggleStrategyConfig").addEventListener("click", () => {
+document.getElementById("toggleStrategyConfig").addEventListener("click", (e) => {
   const el = document.getElementById("strategyConfig");
   el.hidden = !el.hidden;
+  e.target.textContent = el.hidden ? "Configure" : "Hide";
 });
+
+// Every filter applies live — checkboxes/selects re-render immediately on
+// change, number fields on blur/enter — no separate "apply" step needed.
+function applyStrategyConfig() {
+  const cfg = readConfigFromForm();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+  if (lastCandles) renderStrategy(convertCandles(lastCandles));
+}
+document.getElementById("strategyConfig").addEventListener("change", applyStrategyConfig);
+document.getElementById("applyStrategy").addEventListener("click", applyStrategyConfig);
+
 document.getElementById("resetStrategy").addEventListener("click", () => {
   writeConfigToForm(DEFAULT_CONFIG);
   localStorage.removeItem(STORAGE_KEY);
-  if (lastCandles) renderStrategy(convertCandles(lastCandles));
-});
-document.getElementById("applyStrategy").addEventListener("click", () => {
-  const cfg = readConfigFromForm();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
   if (lastCandles) renderStrategy(convertCandles(lastCandles));
 });
 

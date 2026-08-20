@@ -122,6 +122,25 @@
     color: var(--muted);
     z-index: 2;
   }
+  #strategyNote {
+    position: absolute;
+    top: 50px;
+    left: 20px;
+    font-size: 11px;
+    color: var(--muted);
+    z-index: 2;
+  }
+  #strategyNote a { color: var(--accent); }
+  #strategySummary {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    font-size: 12px;
+    z-index: 2;
+    text-align: right;
+  }
+  #strategySummary .up { color: var(--up); }
+  #strategySummary .down { color: var(--down); }
 </style>
 </head>
 <body>
@@ -184,6 +203,7 @@
   </label>
   <button id="refresh">Refresh</button>
   <label><input type="checkbox" id="auto"> Auto-refresh (60s)</label>
+  <label><input type="checkbox" id="strategyToggle"> Strategy</label>
   <div id="meta">
     <span id="price">—</span>
     <span id="change">—</span>
@@ -194,6 +214,8 @@
 <div id="chart-container">
   <div id="status"></div>
   <div id="predictionNote">Dashed segment is a naive linear trend projection, not a price forecast.</div>
+  <div id="strategyNote" hidden>Using the strategy config from <a href="/indicators.html">Indicators</a>.</div>
+  <div id="strategySummary"></div>
 </div>
 
 <script>
@@ -275,8 +297,79 @@ function renderCandles(candlesUsd) {
   const predEl = document.getElementById("prediction");
   predEl.innerHTML = `Projected ${projectBars} bars: <span class="${predPct >= 0 ? "pred-up" : "pred-down"}">${predPct >= 0 ? "+" : ""}${predPct.toFixed(2)}%</span>`;
 
+  renderStrategyOverlay(candles);
+
   chart.timeScale().fitContent();
 }
+
+// ---------- strategy overlay (shares config saved from the Indicators tab) ----------
+let zonePriceLines = [];
+let trendLineSeriesList = [];
+
+function clearStrategyOverlay() {
+  for (const line of zonePriceLines) series.removePriceLine(line);
+  zonePriceLines = [];
+  for (const s of trendLineSeriesList) chart.removeSeries(s);
+  trendLineSeriesList = [];
+  series.setMarkers([]);
+  document.getElementById("strategySummary").textContent = "";
+}
+
+function renderStrategyOverlay(candles) {
+  clearStrategyOverlay();
+  const toggle = document.getElementById("strategyToggle");
+  document.getElementById("strategyNote").hidden = !toggle.checked;
+  if (!toggle.checked || candles.length < 10) return;
+
+  const cfg = Strategy.loadStoredStrategyConfig();
+  const result = Strategy.runStrategy(candles, cfg);
+
+  if (cfg.indicators.srZones.enabled) {
+    for (const z of result.zones) {
+      const color = z.type === "support" ? "#26a69a" : "#ef5350";
+      const label = (z.type === "support" ? "S " : "R ") + "×" + z.touches;
+      zonePriceLines.push(series.createPriceLine({
+        price: z.priceHigh, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: label,
+      }));
+      zonePriceLines.push(series.createPriceLine({
+        price: z.priceLow, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: "",
+      }));
+    }
+  }
+
+  if (cfg.indicators.trendlines.enabled) {
+    const lastTime = candles[candles.length - 1].time;
+    for (const line of result.trendlines) {
+      const color = line.direction === "up" ? "#26a69a" : "#ef5350";
+      const lineSeries = chart.addLineSeries({
+        color, lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+        lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+      });
+      lineSeries.setData([
+        { time: line.t0, value: line.p0 },
+        { time: lastTime, value: Strategy.lineValueAt(line, lastTime) },
+      ]);
+      trendLineSeriesList.push(lineSeries);
+    }
+  }
+
+  series.setMarkers(result.signals.map(s => ({
+    time: s.time,
+    position: s.side === "buy" ? "belowBar" : "aboveBar",
+    color: s.side === "buy" ? "#26a69a" : "#ef5350",
+    shape: s.side === "buy" ? "arrowUp" : "arrowDown",
+    text: s.side.toUpperCase(),
+  })));
+
+  const buys = result.signals.filter(s => s.side === "buy").length;
+  const sells = result.signals.filter(s => s.side === "sell").length;
+  document.getElementById("strategySummary").innerHTML =
+    `<span class="up">${buys} buy</span> &middot; <span class="down">${sells} sell</span>`;
+}
+
+document.getElementById("strategyToggle").addEventListener("change", () => renderCandles(lastCandlesUsd));
 
 FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
   currentCurrency = currency;

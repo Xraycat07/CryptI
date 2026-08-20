@@ -353,10 +353,40 @@
     return { swings, zones, trendlines, indicatorResults, totalScore, signals };
   }
 
+  // Shared default strategy config — also the shape every page's config
+  // form reads into. Kept here so Indicators and Single-coin can't drift
+  // out of sync with each other.
+  const DEFAULT_CONFIG = {
+    swingLookback: 3,
+    indicators: {
+      emaCross: { enabled: true, fast: 20, slow: 50 },
+      rsi: { enabled: true, period: 14, oversold: 30, overbought: 70 },
+      macd: { enabled: true, fast: 12, slow: 26, signal: 9 },
+      srZones: { enabled: true, tolerancePct: 1.5, minTouches: 2, proximityPct: 1, maxZones: 4 },
+      trendlines: { enabled: true, tolerancePct: 0.75, minTouches: 2 },
+    },
+    confluence: { minBullish: 3, minBearish: 3 },
+    cooldownBars: 5,
+    risk: { stopMode: "zone", stopPct: 2, riskReward: 2 },
+  };
+
+  const STRATEGY_CONFIG_STORAGE_KEY = "cryptoApiStrategyConfig";
+
+  function loadStoredStrategyConfig() {
+    try {
+      const raw = localStorage.getItem(STRATEGY_CONFIG_STORAGE_KEY);
+      if (!raw) return DEFAULT_CONFIG;
+      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULT_CONFIG;
+    }
+  }
+
   global.Strategy = {
     ema, rsi, macd,
     findSwingPoints, findSRZones, findTrendLines, lineValueAt,
     projectForward, extendTimes, applyIntervalAvailability,
     registerIndicator, runStrategy,
+    DEFAULT_CONFIG, STRATEGY_CONFIG_STORAGE_KEY, loadStoredStrategyConfig,
   };
 })(window);
