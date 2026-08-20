@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api performance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  .luno-link {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .luno-link:hover { color: var(--text); border-color: var(--accent); }
+  .luno-link.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select, input {
+    background: #0e1117;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  input[type=number] { width: 70px; }
+  button {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { font-size: 12px; color: var(--muted); }
+  #status.error { color: var(--down); }
+
+  main { padding: 20px; }
+
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .note a { color: var(--accent); }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .kpi-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .kpi-value { font-size: 24px; font-weight: 600; }
+  .kpi-value.up { color: var(--up); }
+  .kpi-value.down { color: var(--down); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    font-weight: 600;
+    margin: 0 0 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .ratio-row { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+  .ratio-row:last-child { margin-bottom: 0; }
+  .ratio-coin { flex: 0 0 56px; font-size: 12px; font-weight: 500; }
+  .ratio-track {
+    flex: 1;
+    height: 18px;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    background: rgba(139,147,161,0.12);
+  }
+  .ratio-seg { height: 100%; }
+  .ratio-seg.win { background: var(--up); }
+  .ratio-seg.loss { background: var(--down); }
+  .ratio-seg.open { background: rgba(139,147,161,0.35); }
+  .ratio-count { flex: 0 0 auto; min-width: 130px; text-align: right; font-size: 11px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  tr:last-child td { border-bottom: none; }
+  td.coin { font-weight: 600; text-align: left; }
+  td.up { color: var(--up); }
+  td.down { color: var(--down); }
+  .empty-note { text-align: center; color: var(--muted); padding: 30px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/predictions.html">Predictions</a>
+    <a href="/performance.html" class="active">Performance</a>
+    <a href="/stocks.html">Stocks</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <a href="/luno.html" class="luno-link">🔒 Luno</a>
+  <label>Interval
+    <select id="interval">
+      <option value="1h">1h</option>
+      <option value="6h">6h</option>
+      <option value="1d" selected>1d</option>
+      <option value="1w">1w</option>
+    </select>
+  </label>
+  <label>Candles
+    <input type="number" id="limit" value="300" min="60" max="1000">
+  </label>
+  <button id="refresh">Refresh</button>
+  <span id="status"></span>
+</header>
+
+<main>
+  <div class="note">Backtests the strategy config saved on <a href="/indicators.html">Indicators</a> against every tracked coin's history. Past performance of a rule-based signal isn't a guarantee of future results.</div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-label">Overall win rate</div><div class="kpi-value" id="kpiWinRate">—</div></div>
+    <div class="kpi"><div class="kpi-label">Total signals</div><div class="kpi-value" id="kpiTotal">—</div></div>
+    <div class="kpi"><div class="kpi-label">Wins</div><div class="kpi-value up" id="kpiWins">—</div></div>
+    <div class="kpi"><div class="kpi-label">Losses</div><div class="kpi-value down" id="kpiLosses">—</div></div>
+    <div class="kpi"><div class="kpi-label">Still open</div><div class="kpi-value" id="kpiOpen">—</div></div>
+    <div class="kpi"><div class="kpi-label">Avg return / trade</div><div class="kpi-value" id="kpiAvgReturn">—</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Win / loss ratio by coin</h2>
+    <div id="ratioChart"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Detail</h2>
+    <div id="detailTable"></div>
+  </div>
+</main>
+
+<script src="/strategy.js"></script>
+<script>
+const API_BASE = "";
+const COINS = [
+  { id: "bitcoin",  label: "BTC" },
+  { id: "ethereum", label: "ETH" },
+  { id: "ripple",   label: "XRP" },
+  { id: "litecoin", label: "LTC" },
+  { id: "dogecoin", label: "DOGE" },
+  { id: "solana",   label: "SOL" },
+  { id: "cardano",  label: "ADA" },
+  { id: "polkadot", label: "DOT" },
+  { id: "chainlink", label: "LINK" },
+  { id: "avalanche-2", label: "AVAX" },
+  { id: "polygon-ecosystem-token", label: "POL" },
+  { id: "uniswap",  label: "UNI" },
+];
+
+const statusEl = document.getElementById("status");
+const refreshBtn = document.getElementById("refresh");
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+function fmtPct(p) {
+  return (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
+}
+
+async function fetchCandles(coinId, interval, limit) {
+  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=${interval}&limit=${limit}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
+  return body.candles;
+}
+
+function renderKpis(allBacktested) {
+  const stats = Strategy.summarizeBacktest(allBacktested);
+  document.getElementById("kpiWinRate").textContent = stats.winRatePct != null ? stats.winRatePct.toFixed(1) + "%" : "—";
+  document.getElementById("kpiTotal").textContent = stats.total;
+  document.getElementById("kpiWins").textContent = stats.wins;
+  document.getElementById("kpiLosses").textContent = stats.losses;
+  document.getElementById("kpiOpen").textContent = stats.open;
+  const avgEl = document.getElementById("kpiAvgReturn");
+  avgEl.textContent = stats.avgReturnPct != null ? fmtPct(stats.avgReturnPct) : "—";
+  avgEl.className = "kpi-value" + (stats.avgReturnPct == null ? "" : stats.avgReturnPct >= 0 ? " up" : " down");
+}
+
+function renderRatioChart(perCoin) {
+  const el = document.getElementById("ratioChart");
+  const withSignals = perCoin.filter(c => c.stats.total > 0);
+  if (!withSignals.length) {
+    el.innerHTML = '<div class="empty-note">No signals fired for any coin over this range.</div>';
+    return;
+  }
+  el.innerHTML = "";
+  for (const c of withSignals) {
+    const { wins, losses, open, total } = c.stats;
+    const row = document.createElement("div");
+    row.className = "ratio-row";
+    row.innerHTML = `
+      <div class="ratio-coin">${c.label}</div>
+      <div class="ratio-track">
+        <div class="ratio-seg win" style="width:${(wins / total) * 100}%"></div>
+        <div class="ratio-seg loss" style="width:${(losses / total) * 100}%"></div>
+        <div class="ratio-seg open" style="width:${(open / total) * 100}%"></div>
+      </div>
+      <div class="ratio-count">${wins}W / ${losses}L / ${open}O</div>
+    `;
+    el.appendChild(row);
+  }
+}
+
+function renderDetailTable(perCoin) {
+  const el = document.getElementById("detailTable");
+  const withSignals = perCoin.filter(c => c.stats.total > 0);
+  if (!withSignals.length) {
+    el.innerHTML = '<div class="empty-note">No signals fired for any coin over this range.</div>';
+    return;
+  }
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead><tr>
+      <th>Coin</th><th>Signals</th><th>Wins</th><th>Losses</th><th>Open</th><th>Win rate</th><th>Avg return</th>
+    </tr></thead>
+    <tbody>
+      ${withSignals.map(c => `
+        <tr>
+          <td class="coin">${c.label}</td>
+          <td>${c.stats.total}</td>
+          <td class="up">${c.stats.wins}</td>
+          <td class="down">${c.stats.losses}</td>
+          <td>${c.stats.open}</td>
+          <td>${c.stats.winRatePct != null ? c.stats.winRatePct.toFixed(0) + "%" : "—"}</td>
+          <td class="${c.stats.avgReturnPct == null ? "" : c.stats.avgReturnPct >= 0 ? "up" : "down"}">${c.stats.avgReturnPct != null ? fmtPct(c.stats.avgReturnPct) : "—"}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  `;
+  el.innerHTML = "";
+  el.appendChild(table);
+}
+
+async function loadPerformance() {
+  const interval = document.getElementById("interval").value;
+  const limit = document.getElementById("limit").value;
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+
+  const cfg = Strategy.loadStoredStrategyConfig();
+  const results = await Promise.allSettled(COINS.map(coin => fetchCandles(coin.id, interval, limit)));
+
+  const errors = [];
+  const perCoin = [];
+  const allBacktested = [];
+
+  results.forEach((result, i) => {
+    const coin = COINS[i];
+    if (result.status === "rejected") {
+      errors.push(result.reason.message || String(result.reason));
+      return;
+    }
+    const candles = result.value;
+    if (candles.length < 20) return;
+
+    const strategyResult = Strategy.runStrategy(candles, cfg);
+    const backtested = Strategy.backtestSignals(candles, strategyResult.signals);
+    const stats = Strategy.summarizeBacktest(backtested);
+    perCoin.push({ id: coin.id, label: coin.label, stats });
+    allBacktested.push(...backtested);
+  });
+
+  perCoin.sort((a, b) => (b.stats.winRatePct ?? -1) - (a.stats.winRatePct ?? -1));
+
+  renderKpis(allBacktested);
+  renderRatioChart(perCoin);
+  renderDetailTable(perCoin);
+
+  if (errors.length) {
+    setStatus("Partial error: " + errors.join("; "), true);
+  } else {
+    setStatus("Updated " + new Date().toLocaleTimeString());
+  }
+  refreshBtn.disabled = false;
+}
+
+refreshBtn.addEventListener("click", loadPerformance);
+document.getElementById("interval").addEventListener("change", loadPerformance);
+loadPerformance();
+</script>
+
+</body>
+</html>
