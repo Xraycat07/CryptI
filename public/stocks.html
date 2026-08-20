@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crypto-api stocks</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    white-space: nowrap;
+  }
+  nav { display: flex; gap: 14px; }
+  nav a {
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav a:hover { color: var(--text); }
+  .luno-link {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .luno-link:hover { color: var(--text); border-color: var(--accent); }
+  .luno-link.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  select, input {
+    background: #0e1117;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  input#symbols { width: 260px; }
+  button {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { font-size: 12px; color: var(--muted); }
+  #status.error { color: var(--down); }
+
+  main { padding: 20px; }
+
+  .setup-banner {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .setup-banner code {
+    background: #0e1117;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 12px;
+  }
+  .setup-banner a { color: var(--accent); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 12px 14px;
+    text-align: right;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.ticker { font-weight: 600; }
+  td.up { color: var(--up); }
+  td.down { color: var(--down); }
+  td.muted-cell { color: var(--muted); }
+  .empty-note { text-align: center; color: var(--muted); padding: 30px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>crypto-api</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/single.html">Single-coin</a>
+    <a href="/trends.html">Trends</a>
+    <a href="/indicators.html">Indicators</a>
+    <a href="/predictions.html">Predictions</a>
+    <a href="/stocks.html" class="active">Stocks</a>
+    <a href="/news.html">News</a>
+  </nav>
+  <a href="/luno.html" class="luno-link">🔒 Luno</a>
+  <label>Symbols
+    <input type="text" id="symbols" value="AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ">
+  </label>
+  <label>Currency
+    <select id="currency">
+      <option value="USD">USD $</option>
+      <option value="ZAR">ZAR R</option>
+    </select>
+  </label>
+  <button id="refresh">Refresh</button>
+  <label><input type="checkbox" id="auto"> Auto-refresh (30s)</label>
+  <span id="status"></span>
+</header>
+
+<main>
+  <div id="setupBanner" class="setup-banner" hidden>
+    Stock quotes need a free Finnhub API key. Sign up at
+    <a href="https://finnhub.io/register" target="_blank" rel="noopener noreferrer">finnhub.io/register</a>,
+    then add <code>FINNHUB_API_KEY=your-key</code> to your <code>.env</code> file and restart the server.
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Price</th>
+        <th>Change</th>
+        <th>Change %</th>
+        <th>Day high</th>
+        <th>Day low</th>
+        <th>Prev close</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<script src="/fx.js"></script>
+<script>
+const API_BASE = "";
+const statusEl = document.getElementById("status");
+const rowsEl = document.getElementById("rows");
+const refreshBtn = document.getElementById("refresh");
+const setupBanner = document.getElementById("setupBanner");
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = isError ? "error" : "";
+}
+
+let currentCurrency = "USD";
+let currentRate = 1;
+let lastQuotes = [];
+
+function fmt(usdValue) {
+  return FX.formatMoney(usdValue, currentCurrency, currentRate);
+}
+
+function renderRows(quotes) {
+  const valid = quotes.filter(q => !q.error);
+  const errored = quotes.filter(q => q.error);
+
+  setupBanner.hidden = !errored.some(q => /api key not configured/i.test(q.error || ""));
+
+  if (!valid.length) {
+    rowsEl.innerHTML = '<tr><td colspan="7"><div class="empty-note">No stock data available.</div></td></tr>';
+    return;
+  }
+
+  rowsEl.innerHTML = valid.map(q => `
+    <tr>
+      <td class="ticker">${q.symbol}</td>
+      <td>${fmt(q.current)}</td>
+      <td class="${q.change >= 0 ? "up" : "down"}">${q.change >= 0 ? "+" : ""}${fmt(q.change)}</td>
+      <td class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%</td>
+      <td class="muted-cell">${fmt(q.high)}</td>
+      <td class="muted-cell">${fmt(q.low)}</td>
+      <td class="muted-cell">${fmt(q.previousClose)}</td>
+    </tr>
+  `).join("") + errored.map(q => `
+    <tr>
+      <td class="ticker">${q.symbol}</td>
+      <td colspan="6" class="muted-cell" style="text-align:left">${q.error}</td>
+    </tr>
+  `).join("");
+}
+
+FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
+  currentCurrency = currency;
+  currentRate = rate;
+  renderRows(lastQuotes);
+});
+
+async function loadStocks() {
+  const symbols = document.getElementById("symbols").value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+  refreshBtn.disabled = true;
+  setStatus("Loading…");
+
+  try {
+    const res = await fetch(`${API_BASE}/api/stocks/quotes?symbols=${symbols.join(",")}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+
+    lastQuotes = body.quotes;
+    renderRows(lastQuotes);
+
+    const failed = lastQuotes.filter(q => q.error).length;
+    setStatus(failed ? `Updated ${new Date().toLocaleTimeString()} · ${failed} symbol${failed === 1 ? "" : "s"} failed` : "Updated " + new Date().toLocaleTimeString(), !!failed);
+  } catch (err) {
+    setStatus("Error: " + err.message, true);
+  } finally {
+    refreshBtn.disabled = false;
+  }
+}
+
+let autoTimer = null;
+refreshBtn.addEventListener("click", loadStocks);
+document.getElementById("symbols").addEventListener("change", loadStocks);
+document.getElementById("auto").addEventListener("change", (e) => {
+  if (e.target.checked) autoTimer = setInterval(loadStocks, 30000);
+  else clearInterval(autoTimer);
+});
+
+loadStocks();
+</script>
+
+</body>
+</html>

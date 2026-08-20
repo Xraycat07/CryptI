@@ -7,6 +7,7 @@ const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRa
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory } = require("./luno");
+const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -201,6 +202,19 @@ app.get("/api/coins/:coin/history-info", async (req, res) => {
   try {
     const info = await getHistoryInfo(req.params.coin);
     res.json(info);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Live stock quotes (Finnhub). Requires FINNHUB_API_KEY in .env.
+app.get("/api/stocks/quotes", async (req, res) => {
+  try {
+    const symbols = req.query.symbols
+      ? req.query.symbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+      : DEFAULT_SYMBOLS;
+    const quotes = await getQuotes(symbols);
+    res.json({ quotes });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
