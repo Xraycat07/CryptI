@@ -469,4 +469,8 @@
     backtestSignals, summarizeBacktest, simulateEquity,
     DEFAULT_CONFIG, STRATEGY_CONFIG_STORAGE_KEY, loadStoredStrategyConfig,
   };
-})(window);
+  if (typeof module !== "undefined" && module.exports) module.exports = global.Strategy;
+  // Runs as a plain <script> in the browser (attaches to window) and as a
+  // require()'d module in Node (the luno-bot, so it scores signals with
+  // the exact same indicator math the Trading signal panel uses).
+})(typeof window !== "undefined" ? window : global);

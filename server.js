@@ -6,8 +6,10 @@ const express = require("express");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate, getForexRates, DEFAULT_FOREX_CURRENCIES } = require("./coingecko");
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
-const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory } = require("./luno");
+const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
+const { startBotLoop, checkOnce: runBotCheckOnce, getProposals: getBotProposals, getState: getBotState, setProposalStatus: setBotProposalStatus } = require("./luno-bot");
+const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -277,12 +279,14 @@ app.get("/api/luno/market", async (req, res) => {
   }
 });
 
-// Daily ZAR price history for a held asset (e.g. /api/luno/history/ETH)
+// Daily ZAR price history for a held asset (e.g. /api/luno/history/ETH).
+// Served from the local archive (see luno-history.js) merged with a small
+// live top-up, so it doesn't depend entirely on a live Luno call each time.
 app.get("/api/luno/history/:asset", async (req, res) => {
   try {
     const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 30));
     const asset = req.params.asset.toUpperCase();
-    const candles = await getCandleHistory(`${asset}ZAR`, { days });
+    const candles = await getMergedLunoHistory(`${asset}ZAR`, { days });
     res.json({ asset, pair: `${asset}ZAR`, days, candles });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -299,6 +303,67 @@ app.post("/api/luno/orders", async (req, res) => {
     }
     const result = orderType === "market" ? await placeMarketOrder(params) : await placeLimitOrder(params);
     res.json(result);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Maker/taker fee rates for a pair, used to estimate cost before confirming an order.
+app.get("/api/luno/fees/:pair", async (req, res) => {
+  try {
+    const fees = await getFeeInfo(req.params.pair.toUpperCase());
+    res.json(fees);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Ledger of deposits/withdrawals/trades on the ZAR account — covers every
+// buy/sell across all pairs since each trade has a ZAR leg.
+app.get("/api/luno/transactions", async (req, res) => {
+  try {
+    const count = Math.min(200, Math.max(1, parseInt(req.query.count, 10) || 50));
+    const transactions = await getAccountTransactions({ count });
+    res.json({ transactions });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// The bot's queued buy/sell proposals — it only ever suggests, never trades.
+app.get("/api/luno/bot/proposals", async (req, res) => {
+  try {
+    const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
+    res.json({ proposals, lastCheckedAt: state.lastCheckedAt });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Runs a check immediately instead of waiting for the daily interval.
+app.post("/api/luno/bot/check-now", async (req, res) => {
+  try {
+    const added = await runBotCheckOnce();
+    const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
+    res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.post("/api/luno/bot/proposals/:id/accept", async (req, res) => {
+  try {
+    const proposal = await setBotProposalStatus(req.params.id, "accepted");
+    res.json({ proposal });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.post("/api/luno/bot/proposals/:id/dismiss", async (req, res) => {
+  try {
+    const proposal = await setBotProposalStatus(req.params.id, "dismissed");
+    res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
@@ -328,3 +393,17 @@ backfillHistoryIfNeeded()
 setInterval(() => {
   recordRecentHistory().catch((err) => console.error("history recording failed:", err.message));
 }, 6 * 60 * 60 * 1000);
+
+// Same idea as the Coinbase archive above, but for Luno's held ZAR coins
+// (see luno-history.js) — grows a local daily-candle archive instead of
+// depending entirely on a live Luno call every time.
+backfillLunoHistoryIfNeeded()
+  .then(() => recordRecentLunoHistory())
+  .catch((err) => console.error("initial Luno history backfill/recording failed:", err.message));
+setInterval(() => {
+  recordRecentLunoHistory().catch((err) => console.error("Luno history recording failed:", err.message));
+}, 6 * 60 * 60 * 1000);
+
+// Watches held, ZAR-priced Luno coins for a fresh buy/sell signal once a
+// day and queues a proposal — see luno-bot.js. Never places an order.
+startBotLoop();

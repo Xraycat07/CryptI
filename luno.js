@@ -109,11 +109,15 @@ async function getTickers() {
   return data.tickers || [];
 }
 
-// Daily candles for a pair over the last `days` days (requires auth, unlike
-// the ticker endpoint). Returns chronological ascending candles.
-async function getCandleHistory(pair, { days = 30 } = {}) {
-  const since = Date.now() - days * 86400 * 1000;
-  const data = await lunoRequest("GET", "/api/exchange/1/candles", { pair, since, duration: 86400 });
+// Daily candles for a pair, requires auth (unlike the ticker endpoint).
+// Returns chronological ascending candles. Luno caps a single response at
+// ~1000 candles counting forward from `since` — so for a `since` more than
+// 1000 days back, this returns the *oldest* 1000 days from that point, not
+// the most recent ones. Callers wanting deep history must page forward
+// (see luno-history.js's fetchDeepHistory), not just request more days.
+async function getCandleHistory(pair, { days = 30, since } = {}) {
+  const sinceMs = since != null ? since : Date.now() - days * 86400 * 1000;
+  const data = await lunoRequest("GET", "/api/exchange/1/candles", { pair, since: sinceMs, duration: 86400 });
   return (data.candles || []).map((c) => ({
     time: c.timestamp,
     open: Number(c.open),
@@ -122,6 +126,26 @@ async function getCandleHistory(pair, { days = 30 } = {}) {
     close: Number(c.close),
     volume: Number(c.volume),
   }));
+}
+
+// Maker/taker fee rates and 30-day trading volume for a pair.
+async function getFeeInfo(pair) {
+  return lunoRequest("GET", "/api/1/fee_info", { pair });
+}
+
+// Ledger entries (deposits, withdrawals, trades, fees) for the ZAR account.
+// Every trade has a ZAR leg, so this one account's ledger captures buy/sell
+// activity across all pairs, not just ZAR itself. Luno's row range is
+// negative-indexed from most recent, and rows come back newest-first.
+async function getAccountTransactions({ count = 50 } = {}) {
+  const balances = await getBalances();
+  const zarAccount = balances.find((b) => b.asset === "ZAR");
+  if (!zarAccount) return [];
+  const data = await lunoRequest("GET", `/api/1/accounts/${zarAccount.account_id}/transactions`, {
+    min_row: -count,
+    max_row: 0,
+  });
+  return data.transactions || [];
 }
 
 async function cancelOrder(orderId) {
@@ -133,4 +157,4 @@ async function cancelOrder(orderId) {
   return lunoRequest("POST", "/api/1/stoporder", { order_id: orderId });
 }
 
-module.exports = { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory };
+module.exports = { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory, getAccountTransactions, getFeeInfo };

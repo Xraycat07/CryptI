@@ -178,6 +178,55 @@
   .side-BID, .side-BUY { color: #4caf7d; }
   .side-ASK, .side-SELL { color: #ef5350; }
   .muted-cell { color: var(--muted); }
+
+  .signal-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  .signal-buy { background: rgba(76,175,125,0.15); color: #4caf7d; }
+  .signal-sell { background: rgba(239,83,80,0.15); color: #ef5350; }
+  .signal-hold { background: rgba(139,147,161,0.15); color: var(--muted); }
+
+  .field-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; min-width: 120px; }
+  .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .field input, .field select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    padding: 7px 8px; font-size: 13px; font-family: inherit;
+  }
+  .side-toggle { display: flex; gap: 8px; }
+  .side-toggle button { flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .side-toggle button.active[data-side="buy"] { background: rgba(76,175,125,0.15); border-color: #4caf7d; color: #4caf7d; }
+  .side-toggle button.active[data-side="sell"] { background: rgba(239,83,80,0.15); border-color: #ef5350; color: #ef5350; }
+
+  .confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,0.02); font-size: 13px; }
+  .confirm-box .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .order-msg { margin-top: 10px; font-size: 12px; min-height: 14px; }
+  .order-msg.error { color: #ef5350; }
+  .order-msg.success { color: #4caf7d; }
+  .cancel-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 3px 8px; }
+  .cancel-btn:hover { color: #ef5350; border-color: #ef5350; }
+
+  .subtabs { display: flex; gap: 8px; max-width: 900px; margin: 16px auto 0; padding: 0 20px; }
+  .subtab-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--muted);
+    padding: 6px 16px; font-size: 13px; cursor: pointer; font-weight: 500;
+  }
+  .subtab-btn:hover { color: var(--text); }
+  .subtab-btn.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,0.12); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .pnl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .pnl-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .pnl-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; }
+  .pnl-card-asset { font-weight: 600; font-size: 13px; }
+  .pnl-card-value { font-size: 13px; font-weight: 600; }
+
+  .luno-proposal-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 4px; margin-left: 6px;
+    border-radius: 999px; background: #ef5350; color: white;
+    font-size: 10px; font-weight: 700; line-height: 1;
+  }
 </style>
 </head>
 <body>
@@ -200,45 +249,169 @@
   <span id="status"></span>
 </header>
 
+<div class="subtabs">
+  <button type="button" class="subtab-btn" data-tab="overview">Overview</button>
+  <button type="button" class="subtab-btn" data-tab="trade" id="tradeTabBtn">Trade<span id="tradeTabBadge" class="luno-proposal-badge" style="display:none;"></span></button>
+  <button type="button" class="subtab-btn" data-tab="history">History</button>
+</div>
+
 <main>
-  <div class="panel">
-    <div class="hero-label">Total portfolio value</div>
-    <div class="hero-value" id="heroValue">—</div>
-    <div class="hero-sub" id="heroSub"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Holdings by value</h2>
-    <div id="barChart"></div>
-  </div>
-
-  <div class="panel">
-    <div class="trend-head">
-      <h2>Portfolio value trend</h2>
-      <span class="trend-sub">30d history + 7d projected &middot; at current holdings</span>
+  <div class="tab-panel" data-tab="overview">
+    <div class="panel">
+      <div class="hero-label">Total portfolio value</div>
+      <div class="hero-value" id="heroValue">—</div>
+      <div class="hero-sub" id="heroSub"></div>
     </div>
-    <div class="trend-chart-wrap" id="valueTrendChart"></div>
-    <div class="trend-disclaimer">Dashed segment is a naive straight-line extrapolation of the last 30 days, not a price forecast.</div>
-  </div>
 
-  <div class="panel">
-    <div class="trend-head">
-      <h2>Price trend</h2>
-      <span class="trend-sub">30d history + 7d projected &middot; % change, indexed to day 1</span>
+    <div class="panel">
+      <h2>Holdings by value</h2>
+      <div id="barChart"></div>
     </div>
-    <div id="pctTrendLegend" class="legend"></div>
-    <div class="trend-chart-wrap" id="pctTrendChart"></div>
-    <div class="trend-disclaimer">Dashed segments are a naive straight-line extrapolation per asset, not a price forecast.</div>
+
+    <div class="panel">
+      <h2>Gains &amp; losses by coin</h2>
+      <div id="pnlChart"><div class="empty">Loading…</div></div>
+      <div class="trend-disclaimer">Net P&amp;L = current holding value + total sold for ZAR &minus; total bought for ZAR, from your transaction ledger. Fees are shown separately, not subtracted again &mdash; Luno already bakes them into the crypto amount each trade credits or debits.</div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Portfolio value trend</h2>
+        <span class="trend-sub">90d history + 7d projected &middot; at current holdings</span>
+      </div>
+      <div class="trend-chart-wrap" id="valueTrendChart"></div>
+      <div class="trend-disclaimer">Dashed segment is a naive straight-line extrapolation of the last 90 days, not a price forecast. Holdings are reconstructed from your actual buy/sell history for each day, not projected backward from today.</div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Profit over time</h2>
+        <span class="trend-sub">90d history + 7d projected &middot; value minus net ZAR deposited</span>
+      </div>
+      <div class="trend-chart-wrap" id="profitTrendChart"></div>
+      <div class="trend-disclaimer">Portfolio value minus cumulative deposits &minus; withdrawals, so this is real gain/loss over time &mdash; not inflated by money you added or reduced by money you took out. Like the chart above, holdings with no ZAR price on Luno (BERA, GLDx, NVDAx, PYUSD, TQQQx) count as R0 here, so this understates true profit by whatever those are actually worth.</div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Profit by coin over time</h2>
+        <span class="trend-sub">90d history + 7d projected &middot; ZAR profit per coin &middot; markers show your actual buys/sells</span>
+      </div>
+      <div id="coinPnlLegend" class="legend"></div>
+      <div class="trend-chart-wrap" id="coinPnlChart"></div>
+      <div class="trend-disclaimer">Each line is that coin's reconstructed holding value minus what you've actually spent on it net of what you've sold back &mdash; the same coin-by-coin breakdown as "Gains &amp; losses by coin" above, but as a trend instead of a single snapshot. Coins with no ZAR price aren't shown (same gap as elsewhere on this page).</div>
+    </div>
+
+    <div class="panel">
+      <h2>Profit per coin</h2>
+      <div id="coinPnlGrid" class="pnl-grid"><div class="empty">Loading…</div></div>
+      <div class="trend-disclaimer">One small chart per coin you currently hold (the chart above caps at 5 lines to stay readable — this shows every active position). Same profit calculation, just without the cap.</div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Price trend</h2>
+        <span class="trend-sub">90d history + 7d projected &middot; % change, indexed to day 1 &middot; markers show your actual buys/sells</span>
+      </div>
+      <div id="pctTrendLegend" class="legend"></div>
+      <div class="trend-chart-wrap" id="pctTrendChart"></div>
+      <div class="trend-disclaimer">Dashed segments are a naive straight-line extrapolation per asset, not a price forecast. Triangle markers are your real trades from the transaction ledger (up = buy, down = sell) — hover for details.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Balances</h2>
+      <div id="balances"></div>
+    </div>
   </div>
 
-  <div class="panel">
-    <h2>Balances</h2>
-    <div id="balances"></div>
+  <div class="tab-panel" data-tab="trade">
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Bot proposals</h2>
+        <span class="trend-sub" id="botLastChecked"></span>
+      </div>
+      <div id="botProposals"><div class="empty">Loading…</div></div>
+      <button id="botCheckNow" class="secondary-btn" type="button" style="margin-top:10px;">Check now</button>
+      <div class="trend-disclaimer">Checks your held, ZAR-priced coins once a day for a fresh buy/sell signal &mdash; the same indicator engine as the Trading signal panel below, run server-side so it keeps watching even with this tab closed. It never places a trade itself: Accept only pre-fills the order form below for you to review and confirm.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Trading signal</h2>
+      <div class="field-row">
+        <div class="field">
+          <label for="signalAsset">Asset (vs ZAR)</label>
+          <select id="signalAsset"></select>
+        </div>
+      </div>
+      <div id="signalBody"><div class="empty">Loading…</div></div>
+      <div class="trend-disclaimer">Reuses the shared indicator config from the <a href="/indicators.html" style="color: var(--accent);">Indicators</a> tab (EMA cross, RSI, MACD, S/R zones, trendlines). Not financial advice — always review before trading.</div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Price predictions</h2>
+        <label style="font-size:12px; color: var(--muted); display:flex; align-items:center; gap:6px;">
+          Projected over
+          <input type="number" id="predictionBars" value="7" min="2" max="30" style="width:56px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 6px; font-size: 12px;">
+          days
+        </label>
+      </div>
+      <div id="predictions"><div class="empty">Loading…</div></div>
+      <div class="trend-disclaimer">Naive linear projection per held asset (least-squares line through recent Luno ZAR closes, extended forward) combined with the signal above. Not a forecast, not financial advice.</div>
+    </div>
+
+    <div class="panel" id="orderPanel">
+      <h2>Place order</h2>
+      <div class="field-row">
+        <div class="field">
+          <label>Side</label>
+          <div class="side-toggle">
+            <button type="button" id="sideBuy" data-side="buy" class="active">Buy</button>
+            <button type="button" id="sideSell" data-side="sell">Sell</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="orderPair">Pair</label>
+          <select id="orderPair"></select>
+        </div>
+        <div class="field">
+          <label for="orderType">Order type</label>
+          <select id="orderType">
+            <option value="market">Market</option>
+            <option value="limit">Limit</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label id="volumeLabel" for="orderVolume">Amount to spend (ZAR)</label>
+          <input id="orderVolume" type="number" min="0" step="any" placeholder="0.00">
+        </div>
+        <div class="field" id="priceField" style="display:none;">
+          <label for="orderPrice">Limit price (ZAR)</label>
+          <input id="orderPrice" type="number" min="0" step="any" placeholder="0.00">
+        </div>
+      </div>
+      <div id="feeEstimate" class="order-msg"></div>
+      <button id="reviewOrder" class="secondary-btn" type="button">Review order</button>
+      <div id="orderConfirm"></div>
+      <div id="orderMsg" class="order-msg"></div>
+    </div>
   </div>
 
-  <div class="panel">
-    <h2>Open orders</h2>
-    <div id="orders"></div>
+  <div class="tab-panel" data-tab="history">
+    <div class="panel">
+      <h2>Open orders</h2>
+      <div id="orders"></div>
+    </div>
+
+    <div class="panel">
+      <div class="trend-head">
+        <h2>Transaction history</h2>
+        <span class="trend-sub">ZAR account ledger &middot; deposits, withdrawals, and every trade</span>
+      </div>
+      <div id="transactions"><div class="empty">Loading…</div></div>
+    </div>
   </div>
 </main>
 
@@ -254,6 +427,7 @@
   <div id="trendTtRows"></div>
 </div>
 
+<script src="/strategy.js"></script>
 <script>
 const refreshBtn = document.getElementById("refresh");
 const statusEl = document.getElementById("status");
@@ -268,13 +442,17 @@ const ttQty = document.getElementById("ttQty");
 const ttPrice = document.getElementById("ttPrice");
 const ttValue = document.getElementById("ttValue");
 const valueTrendChartEl = document.getElementById("valueTrendChart");
+const profitTrendChartEl = document.getElementById("profitTrendChart");
+const coinPnlChartEl = document.getElementById("coinPnlChart");
+const coinPnlLegendEl = document.getElementById("coinPnlLegend");
 const pctTrendChartEl = document.getElementById("pctTrendChart");
 const pctTrendLegendEl = document.getElementById("pctTrendLegend");
 const trendTooltipEl = document.getElementById("trendTooltip");
 const trendTtTitle = document.getElementById("trendTtTitle");
 const trendTtRows = document.getElementById("trendTtRows");
+const predictionsEl = document.getElementById("predictions");
 const CATEGORICAL = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)", "var(--cat-5)"];
-const TREND_DAYS = 30;
+const TREND_DAYS = 90;
 
 const zar = (n) => "R " + Number(n).toLocaleString("en-ZA", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const zarCompact = (n) => {
@@ -285,6 +463,14 @@ const zarCompact = (n) => {
 };
 const qty = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 8 });
 
+let latestHoldings = [];
+// TRANSACTIONAL-only balance for an asset — the portion actually free to
+// sell (staked balances have to be unstaked on Luno first).
+function availableQtyFor(asset) {
+  const h = latestHoldings.find((h) => h.asset === asset);
+  return h ? h.available : 0;
+}
+
 function setStatus(msg, isError) {
   statusEl.textContent = msg;
   statusEl.className = isError ? "error" : "";
@@ -294,6 +480,13 @@ function setStatus(msg, isError) {
 // {ASSET}ZAR market exists. ZAR itself is priced at 1. Assets with no ZAR
 // market (tokenized stocks/commodities, etc.) are surfaced with an unknown
 // price rather than guessed.
+//
+// Luno reports balances per account, and the same asset can have more than
+// one account (e.g. a TRANSACTIONAL account and a STAKING account) — so
+// balances are grouped by asset here rather than mapped 1:1. Only the
+// TRANSACTIONAL total is actually free to trade; STAKING (and any other
+// non-transactional) balance is tracked separately as `staked` so the UI
+// can warn before offering a sell that Luno would reject.
 function priceHoldings(balances, tickers) {
   const priceByAsset = { ZAR: 1 };
   for (const t of tickers) {
@@ -301,16 +494,18 @@ function priceHoldings(balances, tickers) {
       priceByAsset[t.pair.slice(0, -3)] = Number(t.last_trade);
     }
   }
-  return balances
-    .map((b) => {
-      const total = Number(b.balance) + Number(b.reserved);
-      const price = priceByAsset[b.asset] ?? null;
-      return {
-        asset: b.asset,
-        qty: total,
-        price,
-        value: price != null ? total * price : null,
-      };
+  const byAsset = {};
+  for (const b of balances) {
+    const total = Number(b.balance) + Number(b.reserved);
+    if (!byAsset[b.asset]) byAsset[b.asset] = { asset: b.asset, qty: 0, available: 0, staked: 0 };
+    byAsset[b.asset].qty += total;
+    if (b.account_type === "TRANSACTIONAL") byAsset[b.asset].available += total;
+    else byAsset[b.asset].staked += total;
+  }
+  return Object.values(byAsset)
+    .map((h) => {
+      const price = priceByAsset[h.asset] ?? null;
+      return { ...h, price, value: price != null ? h.qty * price : null };
     })
     .filter((h) => h.qty !== 0);
 }
@@ -414,7 +609,7 @@ function renderBalances(holdings) {
   const table = document.createElement("table");
   table.innerHTML = `
     <thead><tr>
-      <th>Asset</th><th class="num">Holdings</th><th class="num">Price (ZAR)</th>
+      <th>Asset</th><th class="num">Holdings</th><th class="num">Staked</th><th class="num">Price (ZAR)</th>
       <th class="num">Value (ZAR)</th><th class="num">% of portfolio</th>
     </tr></thead>
   `;
@@ -425,6 +620,7 @@ function renderBalances(holdings) {
     tr.innerHTML = `
       <td>${h.asset}</td>
       <td class="num">${qty(h.qty)}</td>
+      <td class="num muted-cell">${h.staked > 0 ? qty(h.staked) : "—"}</td>
       <td class="num${h.price == null ? " muted-cell" : ""}">${h.price != null ? zar(h.price) : "—"}</td>
       <td class="num${h.value == null ? " muted-cell" : ""}">${h.value != null ? zar(h.value) : "—"}</td>
       <td class="num muted-cell">${pct}</td>
@@ -433,6 +629,12 @@ function renderBalances(holdings) {
   }
   table.appendChild(tbody);
   balancesEl.appendChild(table);
+  if (sorted.some((h) => h.staked > 0)) {
+    const note = document.createElement("div");
+    note.className = "trend-disclaimer";
+    note.textContent = "Staked balances aren't available to sell until unstaked on Luno — the trade suggestions below account for this.";
+    balancesEl.appendChild(note);
+  }
 }
 
 function niceTicks(min, max, count = 4) {
@@ -460,12 +662,98 @@ async function fetchHistory(asset) {
   return body.candles || [];
 }
 
+// Walks each asset's real buy/sell history backward from today's known
+// quantity to recover what was actually held on each earlier day, instead
+// of assuming today's holdings applied all the way back. Day n-1 (today)
+// is the exact anchor; day i's qty = day (i+1)'s qty minus whatever day
+// (i+1)'s trades added or removed. Doesn't account for non-trade quantity
+// changes (staking rewards, airdrops) since those aren't in the buy/sell
+// ledger lines this reads.
+function reconstructHoldingsOverTime(dates, tradeMarkers, assetsWithCurrentQty) {
+  const n = dates.length;
+  const dayKey = (t) => new Date(t).toDateString();
+  const dayIndexByKey = new Map();
+  dates.forEach((d, i) => dayIndexByKey.set(dayKey(d), i));
+
+  const result = {};
+  for (const { asset, currentQty } of assetsWithCurrentQty) {
+    const netByDay = new Array(n).fill(0);
+    for (const t of tradeMarkers) {
+      if (t.asset !== asset) continue;
+      const idx = dayIndexByKey.get(dayKey(t.time));
+      if (idx == null) continue;
+      netByDay[idx] += t.side === "buy" ? t.qty : -t.qty;
+    }
+    const qtyByDay = new Array(n);
+    qtyByDay[n - 1] = currentQty;
+    for (let i = n - 2; i >= 0; i--) qtyByDay[i] = qtyByDay[i + 1] - netByDay[i + 1];
+    result[asset] = qtyByDay;
+  }
+  return result;
+}
+
+// Same backward-walk idea for the ZAR account, except each ledger row
+// already carries its own post-transaction balance snapshot, so no
+// arithmetic is needed — just the last snapshot at or before each day.
+function reconstructZarBalanceOverTime(dates, transactions) {
+  const sorted = [...transactions].sort((a, b) => a.timestamp - b.timestamp);
+  let idx = 0;
+  let balance = 0;
+  return dates.map((d) => {
+    const dayEnd = new Date(d);
+    dayEnd.setHours(23, 59, 59, 999);
+    while (idx < sorted.length && sorted[idx].timestamp <= dayEnd.getTime()) {
+      balance = Number(sorted[idx].balance);
+      idx++;
+    }
+    return balance;
+  });
+}
+
+// Cumulative net ZAR actually put into the account (deposits minus
+// withdrawals and withdrawal fees), up to each day — everything with
+// kind "TRANSFER" rather than "EXCHANGE" (trades aren't capital in or out,
+// they just swap what you already had between ZAR and crypto).
+function reconstructNetContributionsOverTime(dates, transactions) {
+  const transfers = transactions.filter((tx) => tx.kind === "TRANSFER").sort((a, b) => a.timestamp - b.timestamp);
+  let idx = 0;
+  let cumulative = 0;
+  return dates.map((d) => {
+    const dayEnd = new Date(d);
+    dayEnd.setHours(23, 59, 59, 999);
+    while (idx < transfers.length && transfers[idx].timestamp <= dayEnd.getTime()) {
+      cumulative += Number(transfers[idx].balance_delta);
+      idx++;
+    }
+    return cumulative;
+  });
+}
+
+// Cumulative ZAR spent minus received for one coin, up to each day — the
+// running cost basis a coin's holding value is measured against.
+function computeNetSpentOverTime(dates, tradeMarkers, asset) {
+  const trades = tradeMarkers.filter((t) => t.asset === asset).sort((a, b) => a.time - b.time);
+  let idx = 0;
+  let cumulative = 0;
+  return dates.map((d) => {
+    const dayEnd = new Date(d);
+    dayEnd.setHours(23, 59, 59, 999);
+    while (idx < trades.length && trades[idx].time <= dayEnd.getTime()) {
+      cumulative += trades[idx].side === "buy" ? trades[idx].zar : -trades[idx].zar;
+      idx++;
+    }
+    return cumulative;
+  });
+}
+
 // Fetches ZAR daily history for each priced, non-ZAR holding and intersects
-// their timestamps so the value trend and the % trend agree on the same days.
-async function buildTrendData(holdings) {
-  const zarBalance = holdings.find((h) => h.asset === "ZAR")?.qty || 0;
+// their timestamps so the value trend and the % trend agree on the same
+// days, then reconstructs actual historical holdings (see above) so the
+// value trend reflects what you really held each day, not today's holdings
+// projected backward.
+async function buildTrendData(holdings, tradeMarkers, transactions) {
   const priced = holdings.filter((h) => h.asset !== "ZAR" && h.price != null && h.qty > 0);
-  if (!priced.length) return { dates: [], valueSeries: [], pctSeries: [] };
+  if (!priced.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
 
   const results = await Promise.allSettled(priced.map((h) => fetchHistory(h.asset)));
   const byAsset = {};
@@ -474,11 +762,11 @@ async function buildTrendData(holdings) {
   });
 
   const assets = Object.keys(byAsset);
-  if (!assets.length) return { dates: [], valueSeries: [], pctSeries: [] };
+  if (!assets.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
 
   const tsSets = assets.map((a) => new Set(byAsset[a].map((c) => c.time)));
   const common = [...tsSets[0]].filter((t) => tsSets.every((s) => s.has(t))).sort((a, b) => a - b);
-  if (common.length < 2) return { dates: [], valueSeries: [], pctSeries: [] };
+  if (common.length < 2) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
 
   const closeAt = {};
   for (const a of assets) {
@@ -486,10 +774,17 @@ async function buildTrendData(holdings) {
     for (const c of byAsset[a]) closeAt[a][c.time] = c.close;
   }
 
-  const valueSeries = common.map((t) => {
-    let total = zarBalance;
+  const qtyByAssetDay = reconstructHoldingsOverTime(
+    common,
+    tradeMarkers || [],
+    priced.filter((h) => assets.includes(h.asset)).map((h) => ({ asset: h.asset, currentQty: h.qty }))
+  );
+  const zarByDay = reconstructZarBalanceOverTime(common, transactions || []);
+
+  const valueSeries = common.map((t, i) => {
+    let total = zarByDay[i];
     for (const h of priced) {
-      if (closeAt[h.asset]) total += h.qty * closeAt[h.asset][t];
+      if (closeAt[h.asset]) total += qtyByAssetDay[h.asset][i] * closeAt[h.asset][t];
     }
     return total;
   });
@@ -501,7 +796,17 @@ async function buildTrendData(holdings) {
       return { asset: h.asset, value: h.value, points: common.map((t) => ((closeAt[h.asset][t] - base) / base) * 100) };
     });
 
-  return { dates: common, valueSeries, pctSeries };
+  // Per-coin profit over time: that day's reconstructed holding value minus
+  // the running cost basis (ZAR spent minus received) for that coin alone.
+  const coinPnlSeries = priced
+    .filter((h) => closeAt[h.asset])
+    .map((h) => {
+      const netSpent = computeNetSpentOverTime(common, tradeMarkers || [], h.asset);
+      const points = common.map((t, i) => qtyByAssetDay[h.asset][i] * closeAt[h.asset][t] - netSpent[i]);
+      return { asset: h.asset, value: h.value, points };
+    });
+
+  return { dates: common, valueSeries, pctSeries, coinPnlSeries };
 }
 
 const VB_W = 640, VB_H = 200, PAD_L = 44, PAD_R = 10, PAD_T = 10, PAD_B = 26;
@@ -629,7 +934,96 @@ function renderValueTrend(dates, values) {
   });
 }
 
-function renderPctTrend(dates, series) {
+// Profit = portfolio value minus net ZAR actually put in (deposits minus
+// withdrawals) — unlike the raw value trend, this isolates real gain/loss
+// from money you simply added to or took out of the account, and can go
+// negative, so it needs a zero baseline rather than the value chart's
+// always-positive one.
+function renderProfitTrend(dates, values) {
+  profitTrendChartEl.innerHTML = "";
+  if (dates.length < 2) {
+    const empty = document.createElement("div");
+    empty.className = "trend-empty";
+    empty.textContent = "Not enough history yet.";
+    profitTrendChartEl.appendChild(empty);
+    return;
+  }
+  const nActual = dates.length;
+  const projected = projectForward(values, PROJECT_DAYS);
+  const allDates = [...dates, ...extendDates(dates, PROJECT_DAYS)];
+  const allValues = [...values, ...projected];
+  const n = allDates.length;
+
+  const min = Math.min(0, ...allValues), max = Math.max(0, ...allValues);
+  const ticks = niceTicks(min, max, 4);
+  const yMin = Math.min(min, ticks[0]), yMax = Math.max(max, ticks[ticks.length - 1]);
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${VB_W} ${VB_H}`, preserveAspectRatio: "none" });
+
+  for (const t of ticks) {
+    const y = yAt(t, yMin, yMax);
+    svg.appendChild(svgEl("line", { x1: PAD_L, x2: VB_W - PAD_R, y1: y, y2: y, class: Math.abs(t) < 1e-9 ? "baseline" : "gridline" }));
+    const label = svgEl("text", { x: 2, y: y + 3, class: "axis-label" });
+    label.textContent = zarCompact(t);
+    svg.appendChild(label);
+  }
+
+  const isUp = values[nActual - 1] >= 0;
+  const lineColor = isUp ? "var(--chart-good)" : "var(--chart-critical)";
+  const zeroY = yAt(0, yMin, yMax);
+
+  const actualPts = values.map((v, i) => `${xAt(i, n)},${yAt(v, yMin, yMax)}`).join(" ");
+  const areaPts = `${xAt(0, n)},${zeroY} ${actualPts} ${xAt(nActual - 1, n)},${zeroY}`;
+  svg.appendChild(svgEl("polygon", { points: areaPts, fill: isUp ? "var(--chart-series-soft)" : "rgba(230,103,103,0.16)", stroke: "none" }));
+  svg.appendChild(svgEl("polyline", { points: actualPts, fill: "none", stroke: lineColor, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+  const projPts = [values[nActual - 1], ...projected]
+    .map((v, i) => `${xAt(nActual - 1 + i, n)},${yAt(v, yMin, yMax)}`)
+    .join(" ");
+  svg.appendChild(svgEl("polyline", { points: projPts, fill: "none", stroke: lineColor, "stroke-width": 2, "stroke-dasharray": "5 4", opacity: 0.55, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  const sepX = xAt(nActual - 1, n);
+  svg.appendChild(svgEl("line", { x1: sepX, x2: sepX, y1: PAD_T, y2: PAD_T + PLOT_H, class: "baseline", "stroke-dasharray": "2 3" }));
+
+  for (const i of [0, nActual - 1, n - 1]) {
+    const label = svgEl("text", { x: xAt(i, n), y: VB_H - 6, class: "axis-label", "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle" });
+    label.textContent = i === nActual - 1 ? "today" : shortDate(allDates[i]);
+    svg.appendChild(label);
+  }
+
+  const crosshair = svgEl("line", { x1: 0, x2: 0, y1: PAD_T, y2: PAD_T + PLOT_H, class: "trend-crosshair-line" });
+  const dot = svgEl("circle", { r: 4, fill: lineColor, stroke: "var(--panel)", "stroke-width": 2, opacity: 0 });
+  svg.appendChild(crosshair);
+  svg.appendChild(dot);
+  profitTrendChartEl.appendChild(svg);
+
+  attachCrosshairHit(profitTrendChartEl, svg, n, (evt, i) => {
+    const isProjected = i > nActual - 1;
+    const x = xAt(i, n), y = yAt(allValues[i], yMin, yMax);
+    crosshair.setAttribute("x1", x); crosshair.setAttribute("x2", x); crosshair.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("opacity", isProjected ? 0.55 : 1);
+
+    trendTtTitle.textContent = new Date(allDates[i]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) + (isProjected ? " (projected)" : "");
+    trendTtRows.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "tt-row";
+    const label = document.createElement("span");
+    label.textContent = "Profit";
+    const val = document.createElement("strong");
+    const v = allValues[i];
+    val.textContent = (v >= 0 ? "+" : "-") + zar(Math.abs(v));
+    row.appendChild(label);
+    row.appendChild(val);
+    trendTtRows.appendChild(row);
+    trendTooltipEl.classList.add("visible");
+    positionTooltip(evt, trendTooltipEl);
+  }, () => {
+    crosshair.setAttribute("opacity", 0);
+    dot.setAttribute("opacity", 0);
+    trendTooltipEl.classList.remove("visible");
+  });
+}
+
+function renderPctTrend(dates, series, tradeMarkers = []) {
   pctTrendChartEl.innerHTML = "";
   pctTrendLegendEl.innerHTML = "";
   if (dates.length < 2 || !series.length) {
@@ -696,6 +1090,29 @@ function renderPctTrend(dates, series) {
     const lastY = yAt(proj[proj.length - 1], yMin, yMax);
     svg.appendChild(svgEl("circle", { cx: xAt(n - 1, n), cy: lastY, r: 4, fill: s.color, stroke: "var(--panel)", "stroke-width": 2, opacity: 0.55 }));
   }
+
+  // Real trades, grouped by the trading day they landed on so the crosshair
+  // tooltip can surface them alongside that day's prices.
+  const tradesByDayIndex = new Map();
+  dates.forEach((d, i) => {
+    const day = new Date(d).toDateString();
+    const dayTrades = tradeMarkers.filter((t) => new Date(t.time).toDateString() === day);
+    if (dayTrades.length) tradesByDayIndex.set(i, dayTrades);
+  });
+  for (const [i, trades] of tradesByDayIndex) {
+    for (const t of trades) {
+      const s = colored.find((c) => c.asset === t.asset);
+      if (!s) continue; // asset isn't one of the shown series (e.g. beyond the top-5 cap)
+      const x = xAt(i, n);
+      const y = yAt(s.points[i], yMin, yMax);
+      const up = t.side === "buy";
+      const d0 = up
+        ? `M ${x - 4},${y + 4} L ${x},${y - 5} L ${x + 4},${y + 4} Z`
+        : `M ${x - 4},${y - 4} L ${x},${y + 5} L ${x + 4},${y - 4} Z`;
+      svg.appendChild(svgEl("path", { d: d0, fill: up ? "#4caf7d" : "#ef5350", stroke: "var(--panel)", "stroke-width": 1 }));
+    }
+  }
+
   const sepX = xAt(nActual - 1, n);
   svg.appendChild(svgEl("line", { x1: sepX, x2: sepX, y1: PAD_T, y2: PAD_T + PLOT_H, class: "baseline", "stroke-dasharray": "2 3" }));
 
@@ -751,12 +1168,204 @@ function renderPctTrend(dates, series) {
       row.appendChild(val);
       trendTtRows.appendChild(row);
     }
+    for (const t of tradesByDayIndex.get(i) || []) {
+      const row = document.createElement("div");
+      row.className = "tt-row";
+      const feePart = t.fee ? ` &middot; fee ${t.fee}` : "";
+      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${t.asset}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
+      trendTtRows.appendChild(row);
+    }
     trendTooltipEl.classList.add("visible");
     positionTooltip(evt, trendTooltipEl);
   }, () => {
     crosshair.setAttribute("opacity", 0);
     trendTooltipEl.classList.remove("visible");
   });
+}
+
+// Same shape as renderPctTrend but in ZAR profit per coin instead of %
+// price change — each line is that coin's reconstructed holding value
+// minus its running cost basis, so it can be read directly as "am I up or
+// down on this coin, and by how much, over time."
+function renderCoinPnlTrend(dates, series, tradeMarkers = []) {
+  coinPnlChartEl.innerHTML = "";
+  coinPnlLegendEl.innerHTML = "";
+  if (dates.length < 2 || !series.length) {
+    const empty = document.createElement("div");
+    empty.className = "trend-empty";
+    empty.textContent = "Not enough priced history yet.";
+    coinPnlChartEl.appendChild(empty);
+    return;
+  }
+
+  const shown = series.length > CATEGORICAL.length
+    ? [...series].sort((a, b) => b.value - a.value).slice(0, CATEGORICAL.length)
+    : series;
+  const colorByAsset = {};
+  [...shown].map((s) => s.asset).sort().forEach((asset, i) => { colorByAsset[asset] = CATEGORICAL[i]; });
+  const colored = shown.map((s) => ({ ...s, color: colorByAsset[s.asset] })).sort((a, b) => b.value - a.value);
+
+  for (const s of colored) {
+    const item = document.createElement("div");
+    item.className = "legend-item";
+    const sw = document.createElement("span");
+    sw.className = "legend-swatch";
+    sw.style.background = s.color;
+    const label = document.createElement("span");
+    label.textContent = s.asset;
+    item.appendChild(sw);
+    item.appendChild(label);
+    coinPnlLegendEl.appendChild(item);
+  }
+
+  const nActual = dates.length;
+  const allDates = [...dates, ...extendDates(dates, PROJECT_DAYS)];
+  const n = allDates.length;
+  const projectedByAsset = {};
+  for (const s of colored) projectedByAsset[s.asset] = projectForward(s.points, PROJECT_DAYS);
+
+  const allVals = colored.flatMap((s) => [...s.points, ...projectedByAsset[s.asset]]);
+  const min = Math.min(0, ...allVals), max = Math.max(0, ...allVals);
+  const ticks = niceTicks(min, max, 4);
+  const yMin = Math.min(min, ticks[0]), yMax = Math.max(max, ticks[ticks.length - 1]);
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${VB_W} ${VB_H}`, preserveAspectRatio: "none" });
+
+  for (const t of ticks) {
+    const y = yAt(t, yMin, yMax);
+    svg.appendChild(svgEl("line", { x1: PAD_L, x2: VB_W - PAD_R, y1: y, y2: y, class: Math.abs(t) < 1e-9 ? "baseline" : "gridline" }));
+    const label = svgEl("text", { x: 2, y: y + 3, class: "axis-label" });
+    label.textContent = zarCompact(t);
+    svg.appendChild(label);
+  }
+
+  for (const s of colored) {
+    const pts = s.points.map((v, i) => `${xAt(i, n)},${yAt(v, yMin, yMax)}`).join(" ");
+    svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    const proj = projectedByAsset[s.asset];
+    const projPts = [s.points[nActual - 1], ...proj]
+      .map((v, i) => `${xAt(nActual - 1 + i, n)},${yAt(v, yMin, yMax)}`)
+      .join(" ");
+    svg.appendChild(svgEl("polyline", { points: projPts, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-dasharray": "5 4", opacity: 0.55, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    const lastY = yAt(proj[proj.length - 1], yMin, yMax);
+    svg.appendChild(svgEl("circle", { cx: xAt(n - 1, n), cy: lastY, r: 4, fill: s.color, stroke: "var(--panel)", "stroke-width": 2, opacity: 0.55 }));
+  }
+
+  const tradesByDayIndex = new Map();
+  dates.forEach((d, i) => {
+    const day = new Date(d).toDateString();
+    const dayTrades = tradeMarkers.filter((t) => new Date(t.time).toDateString() === day);
+    if (dayTrades.length) tradesByDayIndex.set(i, dayTrades);
+  });
+  for (const [i, trades] of tradesByDayIndex) {
+    for (const t of trades) {
+      const s = colored.find((c) => c.asset === t.asset);
+      if (!s) continue;
+      const x = xAt(i, n);
+      const y = yAt(s.points[i], yMin, yMax);
+      const up = t.side === "buy";
+      const d0 = up
+        ? `M ${x - 4},${y + 4} L ${x},${y - 5} L ${x + 4},${y + 4} Z`
+        : `M ${x - 4},${y - 4} L ${x},${y + 5} L ${x + 4},${y - 4} Z`;
+      svg.appendChild(svgEl("path", { d: d0, fill: up ? "#4caf7d" : "#ef5350", stroke: "var(--panel)", "stroke-width": 1 }));
+    }
+  }
+
+  const sepX = xAt(nActual - 1, n);
+  svg.appendChild(svgEl("line", { x1: sepX, x2: sepX, y1: PAD_T, y2: PAD_T + PLOT_H, class: "baseline", "stroke-dasharray": "2 3" }));
+
+  const MIN_LABEL_GAP = 11;
+  let lastLabelY = -Infinity;
+  const byFinalY = [...colored].sort((a, b) => yAt(projectedByAsset[a.asset].at(-1), yMin, yMax) - yAt(projectedByAsset[b.asset].at(-1), yMin, yMax));
+  for (const s of byFinalY) {
+    const lastY = yAt(projectedByAsset[s.asset].at(-1), yMin, yMax);
+    if (lastY - lastLabelY < MIN_LABEL_GAP) continue;
+    lastLabelY = lastY;
+    const endLabel = svgEl("text", { x: xAt(n - 1, n) + 6, y: lastY + 3, class: "end-label" });
+    endLabel.textContent = s.asset;
+    svg.appendChild(endLabel);
+  }
+
+  for (const i of [0, nActual - 1, n - 1]) {
+    const label = svgEl("text", { x: xAt(i, n), y: VB_H - 6, class: "axis-label", "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle" });
+    label.textContent = i === nActual - 1 ? "today" : shortDate(allDates[i]);
+    svg.appendChild(label);
+  }
+
+  const crosshair = svgEl("line", { x1: 0, x2: 0, y1: PAD_T, y2: PAD_T + PLOT_H, class: "trend-crosshair-line" });
+  svg.appendChild(crosshair);
+  coinPnlChartEl.appendChild(svg);
+
+  attachCrosshairHit(coinPnlChartEl, svg, n, (evt, i) => {
+    const isProjected = i > nActual - 1;
+    const x = xAt(i, n);
+    crosshair.setAttribute("x1", x); crosshair.setAttribute("x2", x); crosshair.setAttribute("opacity", 1);
+
+    trendTtTitle.textContent = new Date(allDates[i]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) + (isProjected ? " (projected)" : "");
+    trendTtRows.innerHTML = "";
+    const valueAt = (s) => (isProjected ? projectedByAsset[s.asset][i - nActual] : s.points[i]);
+    for (const s of [...colored].sort((a, b) => valueAt(b) - valueAt(a))) {
+      const row = document.createElement("div");
+      row.className = "tt-row";
+      const nameWrap = document.createElement("span");
+      nameWrap.className = "tt-name";
+      const key = document.createElement("span");
+      key.className = "tt-linekey";
+      key.style.background = s.color;
+      const label = document.createElement("span");
+      label.textContent = s.asset;
+      nameWrap.appendChild(key);
+      nameWrap.appendChild(label);
+      const val = document.createElement("strong");
+      const v = valueAt(s);
+      val.textContent = (v >= 0 ? "+" : "-") + zar(Math.abs(v));
+      row.appendChild(nameWrap);
+      row.appendChild(val);
+      trendTtRows.appendChild(row);
+    }
+    for (const t of tradesByDayIndex.get(i) || []) {
+      const row = document.createElement("div");
+      row.className = "tt-row";
+      const feePart = t.fee ? ` &middot; fee ${t.fee}` : "";
+      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${t.asset}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
+      trendTtRows.appendChild(row);
+    }
+    trendTooltipEl.classList.add("visible");
+    positionTooltip(evt, trendTooltipEl);
+  }, () => {
+    crosshair.setAttribute("opacity", 0);
+    trendTooltipEl.classList.remove("visible");
+  });
+}
+
+// One small sparkline card per currently-held coin (coinPnlSeries is
+// already built from priced, qty > 0 holdings — see buildTrendData — so
+// there's no top-5 cap and no exited positions to filter out here).
+function renderCoinPnlGrid(series) {
+  const el = document.getElementById("coinPnlGrid");
+  el.innerHTML = "";
+  if (!series.length) {
+    el.innerHTML = '<div class="empty">Not enough trade history yet.</div>';
+    return;
+  }
+  const sorted = [...series].sort((a, b) => b.points[b.points.length - 1] - a.points[a.points.length - 1]);
+  for (const s of sorted) {
+    const last = s.points[s.points.length - 1];
+    const up = last >= 0;
+    const projected = projectForward(s.points, PROJECT_DAYS);
+    const card = document.createElement("div");
+    card.className = "pnl-card";
+    card.innerHTML = `
+      <div class="pnl-card-head">
+        <span class="pnl-card-asset">${s.asset}</span>
+        <span class="pnl-card-value ${up ? "side-BUY" : "side-SELL"}">${up ? "+" : "-"}${zar(Math.abs(last))}</span>
+      </div>
+      ${sparklineWithProjection(s.points.slice(-30), projected, 150, 36)}
+    `;
+    el.appendChild(card);
+  }
 }
 
 function renderOrders(rows) {
@@ -766,7 +1375,7 @@ function renderOrders(rows) {
   }
   ordersEl.innerHTML = `
     <table>
-      <thead><tr><th>Pair</th><th>Side</th><th class="num">Volume</th><th class="num">Price</th><th>Created</th></tr></thead>
+      <thead><tr><th>Pair</th><th>Side</th><th class="num">Volume</th><th class="num">Price</th><th>Created</th><th></th></tr></thead>
       <tbody>
         ${rows.map(o => `
           <tr>
@@ -775,6 +1384,7 @@ function renderOrders(rows) {
             <td class="num">${qty(o.limit_volume ?? o.base ?? 0)}</td>
             <td class="num">${Number(o.limit_price ?? o.price ?? 0).toLocaleString()}</td>
             <td>${o.creation_timestamp ? new Date(Number(o.creation_timestamp)).toLocaleString() : ""}</td>
+            <td><button type="button" class="cancel-btn" data-order-id="${o.order_id}">Cancel</button></td>
           </tr>
         `).join("")}
       </tbody>
@@ -782,14 +1392,693 @@ function renderOrders(rows) {
   `;
 }
 
+ordersEl.addEventListener("click", async (evt) => {
+  const btn = evt.target.closest(".cancel-btn");
+  if (!btn) return;
+  const orderId = btn.dataset.orderId;
+  if (!confirm(`Cancel order ${orderId}?`)) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/luno/orders/${orderId}/cancel`, { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    loadAll();
+  } catch (err) {
+    setStatus("Cancel failed: " + err.message, true);
+    btn.disabled = false;
+  }
+});
+
+// ---------- transaction history ----------
+// Luno labels the fee differently depending on the side of the trade: a
+// buy's ledger entry calls it "Fee", a sell's calls it "Trade cost" —
+// same meaning, different key.
+function feeFromDetails(details) {
+  if (!details) return null;
+  return details.Fee || details["Trade cost"] || null;
+}
+
+function renderTransactions(rows) {
+  const el = document.getElementById("transactions");
+  const withMovement = rows.filter((r) => Number(r.balance_delta) !== 0);
+  if (!withMovement.length) {
+    el.innerHTML = '<div class="empty">No transactions yet.</div>';
+    return;
+  }
+  el.innerHTML = "";
+  const scrollWrap = document.createElement("div");
+  scrollWrap.style.maxHeight = "420px";
+  scrollWrap.style.overflowY = "auto";
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead><tr><th>Date</th><th>Description</th><th class="num">Amount (ZAR)</th><th class="num">Fee</th></tr></thead>
+  `;
+  const tbody = document.createElement("tbody");
+  for (const r of withMovement) {
+    const amount = Number(r.balance_delta);
+    const cls = amount > 0 ? "side-BUY" : "side-SELL";
+    const fee = feeFromDetails(r.details) || "—";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${new Date(r.timestamp).toLocaleString()}</td>
+      <td>${r.description}</td>
+      <td class="num ${cls}">${amount >= 0 ? "+" : "-"}${zar(Math.abs(amount))}</td>
+      <td class="num muted-cell">${fee}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  scrollWrap.appendChild(table);
+  el.appendChild(scrollWrap);
+}
+
+// Extracts buy/sell trade events from the ZAR ledger's plain-language
+// descriptions (e.g. "Bought XRP 5.211176 for R 100.00") so the price trend
+// chart, signal markers, and P&L charts can all read real trades directly.
+// Luno separates the quantity and amount with a non-breaking space (U+00A0)
+// rather than a regular one, hence \s+ instead of literal spaces
+// throughout — and it isn't consistent about the ZAR label either: some
+// entries say "for R 100.00", others say "for ZAR 881.87" for the exact
+// same currency, so both are matched here.
+//
+// This only recognizes ZAR-quoted trades. A crypto-to-crypto trade (paid
+// for in another coin, not ZAR) wouldn't match either pattern and would be
+// silently excluded from every ZAR-based P&L calculation on this page —
+// none exist in this account yet, but the fallback check below logs a
+// warning instead of a repeat of the R/ZAR bug, where a real trade just
+// vanished unnoticed because of a format assumption that didn't hold.
+function parseTradeMarkers(transactions) {
+  const zarTradeRe = /^(Bought|Sold)\s+([A-Za-z0-9]+)\s+([\d.]+)\s+for\s+(?:R|ZAR)\s*([\d,.]+)/;
+  const anyTradeRe = /^(Bought|Sold)\s+([A-Za-z0-9]+)\s+([\d.]+)\s+for\s+/;
+  const markers = [];
+  for (const tx of transactions) {
+    const desc = tx.description || "";
+    const m = zarTradeRe.exec(desc);
+    if (m) {
+      markers.push({
+        time: tx.timestamp,
+        side: m[1] === "Bought" ? "buy" : "sell",
+        asset: m[2],
+        qty: Number(m[3]),
+        zar: Number(m[4].replace(/,/g, "")),
+        fee: feeFromDetails(tx.details),
+      });
+    } else if (anyTradeRe.test(desc)) {
+      console.warn("Trade not ZAR-quoted — excluded from P&L charts:", desc);
+    }
+  }
+  return markers;
+}
+
+// ---------- gains & losses by coin ----------
+// Net P&L per coin = current holding value + total ZAR received selling it
+// − total ZAR spent buying it. All from ledger amounts, so it's exact for
+// the ZAR side; fees aren't subtracted again here since Luno already bakes
+// them into the crypto quantity each trade credits/debits, not as a
+// separate ZAR charge — they're reported alongside for visibility only,
+// valued at each trade's own implied price (fee-asset amount × zar/qty).
+function computePnlByAsset(tradeMarkers, holdings) {
+  const byAsset = {};
+  for (const t of tradeMarkers) {
+    if (!byAsset[t.asset]) byAsset[t.asset] = { asset: t.asset, bought: 0, sold: 0, feeZar: 0 };
+    const bucket = byAsset[t.asset];
+    if (t.side === "buy") bucket.bought += t.zar;
+    else bucket.sold += t.zar;
+    if (t.fee) {
+      const m = /^([A-Za-z0-9]+)\s+([\d.]+)/.exec(t.fee);
+      if (m && t.qty > 0) bucket.feeZar += Number(m[2]) * (t.zar / t.qty);
+    }
+  }
+  const holdingByAsset = {};
+  for (const h of holdings) holdingByAsset[h.asset] = h;
+
+  return Object.values(byAsset)
+    .map((b) => {
+      const holding = holdingByAsset[b.asset];
+      const priced = !!(holding && holding.price != null);
+      const currentValue = priced ? holding.qty * holding.price : 0;
+      const remainingQty = holding ? holding.qty : 0;
+      return { ...b, currentValue, priced, remainingQty, netPnl: currentValue + b.sold - b.bought };
+    })
+    // Only positions you're still actually holding — a coin fully sold or
+    // withdrawn (e.g. an old "BTC"-labeled trade with 0 XBT left today)
+    // would otherwise show as a permanent loss for a position that's closed.
+    .filter((b) => b.remainingQty > 1e-8)
+    .sort((a, b) => b.netPnl - a.netPnl);
+}
+
+function renderPnlChart(rows) {
+  const el = document.getElementById("pnlChart");
+  el.innerHTML = "";
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">Not enough trade history yet.</div>';
+    return;
+  }
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.netPnl)));
+  const barHeight = 20;
+
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const unpriced = !r.priced && r.remainingQty > 1e-8;
+    const label = document.createElement("div");
+    label.className = "bar-asset";
+    label.textContent = r.asset + (unpriced ? " *" : "");
+    if (unpriced) label.title = "No ZAR price available — remaining holdings aren't counted, so this is realized cash flow only, not necessarily a real loss.";
+
+    const track = document.createElement("div");
+    track.className = "bar-track";
+
+    const up = r.netPnl >= 0;
+    const halfWidth = (Math.abs(r.netPnl) / maxAbs) * 48;
+    const svg = svgEl("svg", { width: "100%", height: String(barHeight), viewBox: "0 0 100 " + barHeight, preserveAspectRatio: "none" });
+    svg.appendChild(svgEl("line", { x1: 50, x2: 50, y1: 0, y2: barHeight, stroke: "var(--border)", "stroke-width": 1 }));
+    svg.appendChild(svgEl("rect", {
+      x: up ? 50 : 50 - halfWidth, y: 2, width: Math.max(0.5, halfWidth), height: barHeight - 4, rx: 3,
+      fill: up ? "var(--chart-good)" : "var(--chart-critical)",
+    }));
+    track.appendChild(svg);
+
+    const valueLabel = document.createElement("div");
+    valueLabel.className = "bar-value";
+    valueLabel.innerHTML = `
+      <div class="${up ? "side-BUY" : "side-SELL"}">${up ? "+" : "-"}${zar(Math.abs(r.netPnl))}</div>
+      ${r.feeZar > 0.005 ? `<div class="muted-cell" style="font-size:10px;">fees ${zar(r.feeZar)}</div>` : ""}
+    `;
+
+    row.appendChild(label);
+    row.appendChild(track);
+    row.appendChild(valueLabel);
+    el.appendChild(row);
+  }
+
+  if (rows.some((r) => !r.priced && r.remainingQty > 1e-8)) {
+    const note = document.createElement("div");
+    note.className = "trend-disclaimer";
+    note.style.marginTop = "10px";
+    note.textContent = "* No ZAR price on Luno for this asset — its current holdings aren't valued here, so the bar is realized cash flow only (money out vs. money back), not a true gain/loss.";
+    el.appendChild(note);
+  }
+}
+
+// ---------- trading signal ----------
+const SIGNAL_DAYS = 90;
+let latestTickers = [];
+
+async function fetchSignalHistory(asset) {
+  const res = await fetch(`/api/luno/history/${asset}?days=${SIGNAL_DAYS}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body.candles || [];
+}
+
+function renderSignal(asset, candles) {
+  const signalBody = document.getElementById("signalBody");
+  if (candles.length < 55) {
+    signalBody.innerHTML = `<div class="empty">Not enough ${asset}ZAR history yet for a reliable signal (${candles.length} candles).</div>`;
+    return;
+  }
+  const config = window.Strategy.loadStoredStrategyConfig();
+  const result = window.Strategy.runStrategy(candles, config);
+  const last = candles[candles.length - 1];
+  const lastSignal = result.signals[result.signals.length - 1];
+  const barsAgo = lastSignal ? (candles.length - 1) - lastSignal.index : null;
+  const isFresh = lastSignal && barsAgo <= (config.cooldownBars ?? 5);
+  const side = isFresh ? lastSignal.side : null;
+  const label = side === "buy" ? "BUY" : side === "sell" ? "SELL" : "HOLD";
+  const cls = side === "buy" ? "signal-buy" : side === "sell" ? "signal-sell" : "signal-hold";
+  const lastScore = result.totalScore[result.totalScore.length - 1];
+
+  signalBody.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+      <span class="signal-badge ${cls}">${label}</span>
+      <span class="muted-cell" style="font-size:12px;">score ${lastScore} &middot; last close ${zar(last.close)}</span>
+    </div>
+    ${lastSignal ? `
+      <div style="font-size:12px; color: var(--muted); margin-bottom:10px;">
+        Last <span class="side-${lastSignal.side.toUpperCase()}">${lastSignal.side}</span> signal ${barsAgo} day${barsAgo === 1 ? "" : "s"} ago at ${zar(lastSignal.price)}
+        &middot; stop ${zar(lastSignal.stopLoss)} &middot; target ${zar(lastSignal.takeProfit)}
+      </div>
+      ${isFresh ? (
+        lastSignal.side === "sell" && availableQtyFor(asset) <= 0
+          ? `<div style="font-size:12px; color: var(--muted);">All your ${asset} is staked — unstake it on Luno before you can sell.</div>`
+          : `
+        <button type="button" class="secondary-btn use-signal-btn" data-asset="${asset}" data-side="${lastSignal.side}" data-price="${lastSignal.price}">
+          Use this signal to trade
+        </button>
+      `) : ""}
+    ` : `<div style="font-size:12px; color: var(--muted);">No buy/sell signal in the last ${SIGNAL_DAYS} days.</div>`}
+  `;
+}
+
+async function loadSignal() {
+  const asset = document.getElementById("signalAsset").value;
+  const signalBody = document.getElementById("signalBody");
+  if (!asset) {
+    signalBody.innerHTML = '<div class="empty">No ZAR-priced pairs available.</div>';
+    return;
+  }
+  signalBody.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const candles = await fetchSignalHistory(asset);
+    renderSignal(asset, candles);
+  } catch (err) {
+    signalBody.innerHTML = `<div class="empty">Signal unavailable: ${err.message}</div>`;
+  }
+}
+
+document.getElementById("signalAsset").addEventListener("change", loadSignal);
+document.getElementById("signalBody").addEventListener("click", (evt) => {
+  const btn = evt.target.closest(".use-signal-btn");
+  if (!btn) return;
+  applySignalToOrderForm(btn.dataset.asset, btn.dataset.side, btn.dataset.price);
+});
+
+function applySignalToOrderForm(asset, side, price) {
+  setSide(side);
+  const pairSelect = document.getElementById("orderPair");
+  pairSelect.value = `${asset}ZAR`;
+  document.getElementById("orderType").value = "limit";
+  document.getElementById("orderPrice").value = "";
+  togglePriceField();
+  document.getElementById("orderPrice").value = Number(price).toFixed(2);
+  document.getElementById("orderConfirm").innerHTML = "";
+  document.getElementById("orderMsg").textContent = "";
+  document.getElementById("orderPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("orderVolume").focus();
+}
+
+// ---------- bot proposals ----------
+function renderBotProposals(proposals) {
+  const el = document.getElementById("botProposals");
+  const pending = proposals.filter((p) => p.status === "pending");
+  if (!pending.length) {
+    el.innerHTML = '<div class="empty">No pending proposals right now.</div>';
+    return;
+  }
+  el.innerHTML = "";
+  for (const p of pending) {
+    const card = document.createElement("div");
+    card.className = "confirm-box";
+    card.style.marginTop = "10px";
+    card.innerHTML = `
+      <div class="row"><span>Signal</span><strong class="side-${p.side.toUpperCase()}">${p.side.toUpperCase()} ${p.pair}</strong></div>
+      <div class="row"><span>Signal date</span><strong>${new Date(p.signalTime).toLocaleDateString()}</strong></div>
+      <div class="row"><span>Entry</span><strong>${zar(p.price)}</strong></div>
+      <div class="row"><span>Stop / Target</span><strong>${zar(p.stopLoss)} / ${zar(p.takeProfit)}</strong></div>
+      <div class="confirm-actions">
+        <button type="button" class="bot-accept-btn" data-id="${p.id}" data-asset="${p.asset}" data-side="${p.side}" data-price="${p.price}">Accept &amp; review order</button>
+        <button type="button" class="secondary-btn bot-dismiss-btn" data-id="${p.id}">Dismiss</button>
+      </div>
+    `;
+    el.appendChild(card);
+  }
+}
+
+function updateTradeTabBadge(pendingCount) {
+  const badge = document.getElementById("tradeTabBadge");
+  if (pendingCount > 0) {
+    badge.textContent = String(pendingCount);
+    badge.style.display = "";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+async function loadBotProposals() {
+  const el = document.getElementById("botProposals");
+  try {
+    const res = await fetch("/api/luno/bot/proposals");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    const proposals = body.proposals || [];
+    renderBotProposals(proposals);
+    updateTradeTabBadge(proposals.filter((p) => p.status === "pending").length);
+    document.getElementById("botLastChecked").textContent = body.lastCheckedAt
+      ? `Last checked ${new Date(body.lastCheckedAt).toLocaleString()}`
+      : "Not checked yet";
+  } catch (err) {
+    el.innerHTML = `<div class="empty">Bot unavailable: ${err.message}</div>`;
+  }
+}
+
+document.getElementById("botProposals").addEventListener("click", async (evt) => {
+  const acceptBtn = evt.target.closest(".bot-accept-btn");
+  const dismissBtn = evt.target.closest(".bot-dismiss-btn");
+  if (acceptBtn) {
+    const { id, asset, side, price } = acceptBtn.dataset;
+    await fetch(`/api/luno/bot/proposals/${id}/accept`, { method: "POST" });
+    applySignalToOrderForm(asset, side, price);
+    loadBotProposals();
+  } else if (dismissBtn) {
+    await fetch(`/api/luno/bot/proposals/${dismissBtn.dataset.id}/dismiss`, { method: "POST" });
+    loadBotProposals();
+  }
+});
+
+document.getElementById("botCheckNow").addEventListener("click", async () => {
+  const btn = document.getElementById("botCheckNow");
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  try {
+    const res = await fetch("/api/luno/bot/check-now", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    await loadBotProposals();
+  } catch (err) {
+    document.getElementById("botProposals").innerHTML = `<div class="empty">Check failed: ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Check now";
+  }
+});
+
+// ---------- price predictions ----------
+
+// Same solid-history/dashed-projection sparkline convention used on the
+// standalone Predictions page, recolored to this page's buy/sell palette.
+function sparklineWithProjection(historyCloses, projectedCloses, width = 110, height = 30) {
+  const all = [...historyCloses, ...projectedCloses];
+  const min = Math.min(...all), max = Math.max(...all);
+  const range = max - min || 1;
+  const totalSteps = historyCloses.length - 1 + projectedCloses.length;
+  const xAt = (i) => (totalSteps <= 0 ? 0 : (i / totalSteps) * width);
+  const yAt = (v) => height - ((v - min) / range) * height;
+  const histPts = historyCloses.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+  const projPts = [
+    `${xAt(historyCloses.length - 1).toFixed(1)},${yAt(historyCloses[historyCloses.length - 1]).toFixed(1)}`,
+    ...projectedCloses.map((v, i) => `${xAt(historyCloses.length + i).toFixed(1)},${yAt(v).toFixed(1)}`),
+  ].join(" ");
+  const up = projectedCloses[projectedCloses.length - 1] >= historyCloses[historyCloses.length - 1];
+  const color = up ? "#4caf7d" : "#ef5350";
+  return `<svg width="${width}" height="${height}">
+    <polyline points="${histPts}" fill="none" stroke="${color}" stroke-width="1.5"/>
+    <polyline points="${projPts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.6"/>
+  </svg>`;
+}
+
+// A fresh indicator signal (same one shown in the Trading signal panel)
+// always wins; otherwise the naive projection's direction becomes a softer
+// "watch for" nudge rather than an active call.
+function suggestionFor(pctChange, lastSignal, isFresh) {
+  if (isFresh) {
+    return {
+      text: lastSignal.side === "buy" ? "Buy signal active" : "Sell signal active",
+      side: lastSignal.side,
+      cls: lastSignal.side === "buy" ? "signal-buy" : "signal-sell",
+    };
+  }
+  if (pctChange >= 1) return { text: "Watch for entry (trending up)", side: "buy", cls: "signal-hold" };
+  if (pctChange <= -1) return { text: "Watch for exit (trending down)", side: "sell", cls: "signal-hold" };
+  return { text: "Hold — no clear edge", side: null, cls: "signal-hold" };
+}
+
+async function computePredictionRow(asset, barsWanted) {
+  const candles = await fetchSignalHistory(asset);
+  if (candles.length < 10) return null;
+  const closes = candles.map((c) => c.close);
+  const projectBars = Math.max(2, Math.min(barsWanted, Math.floor(closes.length * 0.3)));
+  const projected = window.Strategy.projectForward(closes, projectBars);
+  const last = closes[closes.length - 1];
+  const projectedLast = projected[projected.length - 1];
+  const pctChange = ((projectedLast - last) / last) * 100;
+
+  let lastSignal = null, isFresh = false;
+  if (candles.length >= 55) {
+    const config = window.Strategy.loadStoredStrategyConfig();
+    const result = window.Strategy.runStrategy(candles, config);
+    lastSignal = result.signals[result.signals.length - 1] || null;
+    const barsAgo = lastSignal ? (candles.length - 1) - lastSignal.index : null;
+    isFresh = !!lastSignal && barsAgo <= (config.cooldownBars ?? 5);
+  }
+
+  let suggestion = suggestionFor(pctChange, lastSignal, isFresh);
+  if (suggestion.side === "sell" && availableQtyFor(asset) <= 0) {
+    suggestion = { ...suggestion, text: suggestion.text + " (staked)", side: null };
+  }
+
+  return {
+    asset, last, projectedLast, pctChange,
+    historyCloses: closes.slice(-30),
+    projectedCloses: projected,
+    suggestion,
+  };
+}
+
+async function loadPredictions(holdings) {
+  const barsWanted = Math.max(2, Math.min(30, Number(document.getElementById("predictionBars").value) || 7));
+  const priced = holdings.filter((h) => h.asset !== "ZAR" && h.price != null && h.qty > 0);
+  if (!priced.length) {
+    predictionsEl.innerHTML = '<div class="empty">No priced holdings to predict.</div>';
+    return;
+  }
+  predictionsEl.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const results = await Promise.allSettled(priced.map((h) => computePredictionRow(h.asset, barsWanted)));
+    const rows = results
+      .map((r) => (r.status === "fulfilled" ? r.value : null))
+      .filter(Boolean)
+      .sort((a, b) => b.pctChange - a.pctChange);
+
+    if (!rows.length) {
+      predictionsEl.innerHTML = '<div class="empty">Not enough history to predict yet.</div>';
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.innerHTML = `
+      <thead><tr>
+        <th>Asset</th><th class="num">Price</th><th class="num">Projected</th>
+        <th class="num">Change</th><th>Trend</th><th>Suggestion</th><th></th>
+      </tr></thead>
+    `;
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const dir = row.pctChange >= 0 ? "up" : "down";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${row.asset}</td>
+        <td class="num">${zar(row.last)}</td>
+        <td class="num">${zar(row.projectedLast)}</td>
+        <td class="num ${dir === "up" ? "side-BUY" : "side-SELL"}">${(row.pctChange >= 0 ? "+" : "") + row.pctChange.toFixed(1)}%</td>
+        <td>${sparklineWithProjection(row.historyCloses, row.projectedCloses)}</td>
+        <td><span class="signal-badge ${row.suggestion.cls}" style="font-size:11px;">${row.suggestion.text}</span></td>
+        <td>${row.suggestion.side ? `<button type="button" class="secondary-btn predict-trade-btn" data-asset="${row.asset}" data-side="${row.suggestion.side}" data-price="${row.last}">Trade</button>` : ""}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    predictionsEl.innerHTML = "";
+    predictionsEl.appendChild(table);
+  } catch (err) {
+    predictionsEl.innerHTML = `<div class="empty">Predictions unavailable: ${err.message}</div>`;
+  }
+}
+
+predictionsEl.addEventListener("click", (evt) => {
+  const btn = evt.target.closest(".predict-trade-btn");
+  if (!btn) return;
+  applySignalToOrderForm(btn.dataset.asset, btn.dataset.side, btn.dataset.price);
+});
+
+document.getElementById("predictionBars").addEventListener("change", () => loadPredictions(latestHoldings));
+
+// ---------- pair selectors ----------
+function populatePairSelectors(tickers) {
+  const zarPairs = tickers.filter((t) => t.pair.endsWith("ZAR") && t.pair !== "ZAR").map((t) => t.pair).sort();
+  const signalSelect = document.getElementById("signalAsset");
+  const orderSelect = document.getElementById("orderPair");
+  const prevSignal = signalSelect.value;
+  const prevOrder = orderSelect.value;
+  signalSelect.innerHTML = zarPairs.map((p) => `<option value="${p.slice(0, -3)}">${p.slice(0, -3)}</option>`).join("");
+  orderSelect.innerHTML = zarPairs.map((p) => `<option value="${p}">${p}</option>`).join("");
+  if (zarPairs.some((p) => p.slice(0, -3) === prevSignal)) signalSelect.value = prevSignal;
+  if (zarPairs.includes(prevOrder)) orderSelect.value = prevOrder;
+}
+
+// ---------- order form ----------
+function currentSide() {
+  return document.getElementById("sideBuy").classList.contains("active") ? "buy" : "sell";
+}
+function setSide(side) {
+  document.getElementById("sideBuy").classList.toggle("active", side === "buy");
+  document.getElementById("sideSell").classList.toggle("active", side === "sell");
+  updateVolumeLabel();
+  updateFeeEstimate();
+}
+function updateVolumeLabel() {
+  const side = currentSide();
+  const orderType = document.getElementById("orderType").value;
+  const pair = document.getElementById("orderPair").value;
+  const asset = pair.replace(/ZAR$/, "");
+  const label = document.getElementById("volumeLabel");
+  if (orderType === "market") {
+    label.textContent = side === "buy" ? "Amount to spend (ZAR)" : `Amount to sell (${asset || "asset"})`;
+  } else {
+    label.textContent = `Volume (${asset || "asset"})`;
+  }
+}
+function togglePriceField() {
+  const isLimit = document.getElementById("orderType").value === "limit";
+  document.getElementById("priceField").style.display = isLimit ? "" : "none";
+  if (isLimit) {
+    const pair = document.getElementById("orderPair").value;
+    const ticker = latestTickers.find((t) => t.pair === pair);
+    const priceInput = document.getElementById("orderPrice");
+    if (ticker && !priceInput.value) priceInput.value = Number(ticker.last_trade).toFixed(2);
+  }
+  updateVolumeLabel();
+  updateFeeEstimate();
+}
+
+// Cached per pair for the current session — maker/taker rates don't change
+// often enough to warrant refetching on every keystroke.
+const feeCache = {};
+async function getFeeForPair(pair) {
+  if (feeCache[pair]) return feeCache[pair];
+  const res = await fetch(`/api/luno/fees/${pair}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  feeCache[pair] = body;
+  return body;
+}
+
+// Estimated at the taker rate (the safe upper bound) since a limit order
+// might fill as a cheaper maker order instead — Luno itself only knows
+// which applied after the fact.
+async function updateFeeEstimate() {
+  const feeEl = document.getElementById("feeEstimate");
+  const pair = document.getElementById("orderPair").value;
+  const orderType = document.getElementById("orderType").value;
+  const side = currentSide();
+  const volume = Number(document.getElementById("orderVolume").value);
+  const price = Number(document.getElementById("orderPrice").value);
+  if (!pair || !volume) { feeEl.textContent = ""; return; }
+
+  let fees;
+  try {
+    fees = await getFeeForPair(pair);
+  } catch {
+    feeEl.textContent = "";
+    return;
+  }
+  const takerFee = Number(fees.taker_fee);
+  const ticker = latestTickers.find((t) => t.pair === pair);
+  const refPrice = orderType === "limit" && price > 0 ? price : (ticker ? Number(ticker.last_trade) : null);
+  if (refPrice == null || !Number.isFinite(takerFee)) { feeEl.textContent = ""; return; }
+
+  // Market buys specify the ZAR amount directly; every other case specifies
+  // asset volume, so it's converted to a ZAR-equivalent trade value first.
+  const tradeValueZar = orderType === "market" && side === "buy" ? volume : volume * refPrice;
+  const estFeeZar = tradeValueZar * takerFee;
+  feeEl.className = "order-msg muted-cell";
+  feeEl.textContent = `Est. fee: ${zar(estFeeZar)} (${(takerFee * 100).toFixed(2)}% taker rate — less if this fills as a maker order)`;
+}
+
+document.getElementById("sideBuy").addEventListener("click", () => setSide("buy"));
+document.getElementById("sideSell").addEventListener("click", () => setSide("sell"));
+document.getElementById("orderType").addEventListener("change", togglePriceField);
+document.getElementById("orderPair").addEventListener("change", togglePriceField);
+document.getElementById("orderVolume").addEventListener("input", updateFeeEstimate);
+document.getElementById("orderPrice").addEventListener("input", updateFeeEstimate);
+
+document.getElementById("reviewOrder").addEventListener("click", () => {
+  const orderMsg = document.getElementById("orderMsg");
+  const orderConfirm = document.getElementById("orderConfirm");
+  orderMsg.textContent = "";
+  orderMsg.className = "order-msg";
+  orderConfirm.innerHTML = "";
+
+  const side = currentSide();
+  const pair = document.getElementById("orderPair").value;
+  const orderType = document.getElementById("orderType").value;
+  const volume = document.getElementById("orderVolume").value;
+  const price = document.getElementById("orderPrice").value;
+  const asset = pair.replace(/ZAR$/, "");
+
+  if (!pair) { orderMsg.textContent = "Pick a pair first."; orderMsg.className = "order-msg error"; return; }
+  if (!volume || Number(volume) <= 0) { orderMsg.textContent = "Enter a volume greater than zero."; orderMsg.className = "order-msg error"; return; }
+  if (orderType === "limit" && (!price || Number(price) <= 0)) { orderMsg.textContent = "Enter a limit price greater than zero."; orderMsg.className = "order-msg error"; return; }
+
+  if (side === "sell") {
+    const holding = latestHoldings.find((h) => h.asset === asset);
+    const available = holding ? holding.available : 0;
+    if (Number(volume) > available + 1e-8) {
+      const stakedNote = holding && holding.staked > 0
+        ? ` ${qty(holding.staked)} ${asset} is staked and must be unstaked on Luno before it can be sold.`
+        : "";
+      orderMsg.textContent = `Only ${qty(available)} ${asset} is available to sell.${stakedNote}`;
+      orderMsg.className = "order-msg error";
+      return;
+    }
+  }
+
+  const params = { pair, orderType };
+  let volumeDesc;
+  if (orderType === "market") {
+    params.type = side === "buy" ? "BUY" : "SELL";
+    params.volume = volume;
+    volumeDesc = side === "buy" ? `spend R ${Number(volume).toLocaleString()}` : `sell ${qty(volume)} ${asset}`;
+  } else {
+    params.type = side === "buy" ? "BID" : "ASK";
+    params.volume = volume;
+    params.price = price;
+    volumeDesc = `${qty(volume)} ${asset} at R ${Number(price).toLocaleString()}`;
+  }
+
+  orderConfirm.innerHTML = `
+    <div class="confirm-box">
+      <div class="row"><span>Action</span><strong class="side-${side.toUpperCase()}">${side.toUpperCase()} ${pair}</strong></div>
+      <div class="row"><span>Order type</span><strong>${orderType}</strong></div>
+      <div class="row"><span>Details</span><strong>${volumeDesc}</strong></div>
+      <div class="confirm-actions">
+        <button type="button" id="confirmOrderBtn">Confirm &amp; place real order</button>
+        <button type="button" id="cancelReviewBtn" class="secondary-btn">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("cancelReviewBtn").addEventListener("click", () => { orderConfirm.innerHTML = ""; });
+  document.getElementById("confirmOrderBtn").addEventListener("click", () => submitOrder(params));
+});
+
+async function submitOrder(params) {
+  const orderMsg = document.getElementById("orderMsg");
+  const orderConfirm = document.getElementById("orderConfirm");
+  const confirmBtn = document.getElementById("confirmOrderBtn");
+  if (confirmBtn) confirmBtn.disabled = true;
+  orderMsg.textContent = "Placing order…";
+  orderMsg.className = "order-msg";
+  try {
+    const res = await fetch("/api/luno/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...params, confirm: true }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    orderMsg.textContent = `Order placed${body.order_id ? " (" + body.order_id + ")" : ""}.`;
+    orderMsg.className = "order-msg success";
+    orderConfirm.innerHTML = "";
+    document.getElementById("orderVolume").value = "";
+    document.getElementById("orderPrice").value = "";
+    loadAll();
+  } catch (err) {
+    orderMsg.textContent = "Error: " + err.message;
+    orderMsg.className = "order-msg error";
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+}
+
 async function loadAll() {
   refreshBtn.disabled = true;
   setStatus("Loading…");
   try {
-    const [balRes, ordRes, mktRes] = await Promise.all([
+    const [balRes, ordRes, mktRes, txRes] = await Promise.all([
       fetch("/api/luno/balance"),
       fetch("/api/luno/orders"),
       fetch("/api/luno/market"),
+      fetch("/api/luno/transactions?count=200"),
     ]);
     const balBody = await balRes.json();
     const ordBody = await ordRes.json();
@@ -798,16 +2087,43 @@ async function loadAll() {
     if (!ordRes.ok) throw new Error(ordBody.error || ordRes.statusText);
     if (!mktRes.ok) throw new Error(mktBody.error || mktRes.statusText);
 
-    const holdings = priceHoldings(balBody.balance || [], mktBody.tickers || []);
+    latestTickers = mktBody.tickers || [];
+    const holdings = priceHoldings(balBody.balance || [], latestTickers);
+    latestHoldings = holdings;
     renderHero(holdings);
     renderBarChart(holdings);
     renderBalances(holdings);
     renderOrders(ordBody.orders || []);
 
+    let tradeMarkers = [];
+    let transactions = [];
     try {
-      const { dates, valueSeries, pctSeries } = await buildTrendData(holdings);
+      const txBody = await txRes.json();
+      if (!txRes.ok) throw new Error(txBody.error || txRes.statusText);
+      transactions = txBody.transactions || [];
+      renderTransactions(transactions);
+      tradeMarkers = parseTradeMarkers(transactions);
+      renderPnlChart(computePnlByAsset(tradeMarkers, holdings));
+    } catch (txErr) {
+      document.getElementById("transactions").innerHTML = `<div class="empty">Transaction history unavailable: ${txErr.message}</div>`;
+      document.getElementById("pnlChart").innerHTML = `<div class="empty">Unavailable: ${txErr.message}</div>`;
+    }
+
+    populatePairSelectors(latestTickers);
+    togglePriceField();
+    loadSignal();
+    loadPredictions(holdings);
+    loadBotProposals();
+
+    try {
+      const { dates, valueSeries, pctSeries, coinPnlSeries } = await buildTrendData(holdings, tradeMarkers, transactions);
       renderValueTrend(dates, valueSeries);
-      renderPctTrend(dates, pctSeries);
+      renderPctTrend(dates, pctSeries, tradeMarkers);
+      const netContributions = reconstructNetContributionsOverTime(dates, transactions);
+      const profitSeries = valueSeries.map((v, i) => v - netContributions[i]);
+      renderProfitTrend(dates, profitSeries);
+      renderCoinPnlTrend(dates, coinPnlSeries, tradeMarkers);
+      renderCoinPnlGrid(coinPnlSeries);
     } catch (trendErr) {
       const msg = document.createElement("div");
       msg.className = "trend-empty";
@@ -816,6 +2132,10 @@ async function loadAll() {
       valueTrendChartEl.appendChild(msg);
       pctTrendChartEl.innerHTML = "";
       pctTrendLegendEl.innerHTML = "";
+      document.getElementById("profitTrendChart").innerHTML = "";
+      coinPnlChartEl.innerHTML = "";
+      coinPnlLegendEl.innerHTML = "";
+      document.getElementById("coinPnlGrid").innerHTML = "";
     }
 
     setStatus(`Updated ${new Date().toLocaleTimeString()}`);
@@ -828,6 +2148,10 @@ async function loadAll() {
     valueTrendChartEl.innerHTML = "";
     pctTrendChartEl.innerHTML = "";
     pctTrendLegendEl.innerHTML = "";
+    document.getElementById("profitTrendChart").innerHTML = "";
+    coinPnlChartEl.innerHTML = "";
+    coinPnlLegendEl.innerHTML = "";
+    document.getElementById("coinPnlGrid").innerHTML = "";
     setStatus("Error: " + err.message, true);
   } finally {
     refreshBtn.disabled = false;
@@ -838,6 +2162,18 @@ document.getElementById("logout").addEventListener("click", async () => {
   await fetch("/api/luno/logout", { method: "POST" });
   window.location.href = "/luno.html";
 });
+
+// ---------- sub-tabs ----------
+const SUBTAB_STORAGE_KEY = "cryptoApiLunoTab";
+function setActiveTab(tab) {
+  document.querySelectorAll(".tab-panel").forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".subtab-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tab));
+  localStorage.setItem(SUBTAB_STORAGE_KEY, tab);
+}
+document.querySelectorAll(".subtab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+});
+setActiveTab(localStorage.getItem(SUBTAB_STORAGE_KEY) || "overview");
 
 refreshBtn.addEventListener("click", loadAll);
 loadAll();
