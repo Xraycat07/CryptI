@@ -1,7 +1,7 @@
 const path = require("path");
 const express = require("express");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory } = require("./coingecko");
-const { getCandles, SYMBOL_MAP } = require("./binance");
+const { getCandles, SYMBOL_MAP } = require("./coinbase");
 const { getNews } = require("./news");
 
 const app = express();
@@ -64,11 +64,11 @@ app.get("/api/prices/hourly/:coin", async (req, res) => {
   }
 });
 
-// OHLC candles for charting (Binance-backed, no rate-limit trouble)
+// OHLC candles for charting (Coinbase-backed; Binance geoblocks most cloud hosts)
 app.get("/api/candles/:coin", async (req, res) => {
   try {
     const interval = req.query.interval || "1d";
-    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 365));
+    const limit = Math.min(300, Math.max(1, parseInt(req.query.limit, 10) || 300));
     const candles = await getCandles(req.params.coin, { interval, limit });
     res.json({ coin: req.params.coin, interval, candles });
   } catch (err) {
