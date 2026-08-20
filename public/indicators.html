@@ -181,9 +181,16 @@
   #signalsTable th { color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; }
   #signalsTable td.num { text-align: right; font-variant-numeric: tabular-nums; }
   #signalsTable th.num { text-align: right; }
+  #signalsTable td.num.up { color: var(--up); }
+  #signalsTable td.num.down { color: var(--down); }
+  #signalsTable td.muted-cell { color: var(--muted); }
   .side-badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
   .side-badge.buy { background: rgba(38,166,154,0.15); color: var(--up); }
   .side-badge.sell { background: rgba(239,83,80,0.15); color: var(--down); }
+  .outcome-badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .outcome-badge.win { background: rgba(38,166,154,0.15); color: var(--up); }
+  .outcome-badge.loss { background: rgba(239,83,80,0.15); color: var(--down); }
+  .outcome-badge.open { background: rgba(139,147,161,0.15); color: var(--muted); }
   .empty-note { color: var(--muted); font-size: 12px; padding: 12px 0; text-align: center; }
 </style>
 </head>
@@ -550,7 +557,7 @@ function renderTrendlines(trendlines, candles) {
   }
 }
 
-function renderSignalsTable(signals) {
+function renderSignalsTable(candles, signals) {
   const tableEl = document.getElementById("signalsTable");
   const summaryEl = document.getElementById("signalsSummary");
   if (!signals.length) {
@@ -558,14 +565,17 @@ function renderSignalsTable(signals) {
     summaryEl.textContent = "0 signals";
     return;
   }
+  const backtested = Strategy.backtestSignals(candles, signals);
+  const stats = Strategy.summarizeBacktest(backtested);
   const buys = signals.filter(s => s.side === "buy").length;
   const sells = signals.filter(s => s.side === "sell").length;
-  summaryEl.textContent = `${buys} buy · ${sells} sell`;
+  const winRateText = stats.winRatePct != null ? `${stats.winRatePct.toFixed(0)}% win rate (${stats.wins}W/${stats.losses}L, ${stats.open} open)` : `${stats.open} open, none resolved yet`;
+  summaryEl.textContent = `${buys} buy · ${sells} sell · ${winRateText}`;
 
-  const rows = [...signals].reverse().slice(0, 25);
+  const rows = [...backtested].reverse().slice(0, 25);
   tableEl.innerHTML = `
     <table>
-      <thead><tr><th>Time</th><th>Side</th><th class="num">Entry</th><th class="num">Stop loss</th><th class="num">Take profit</th><th class="num">Score</th></tr></thead>
+      <thead><tr><th>Time</th><th>Side</th><th class="num">Entry</th><th class="num">Stop loss</th><th class="num">Take profit</th><th class="num">Score</th><th>Outcome</th><th class="num">Return</th></tr></thead>
       <tbody>
         ${rows.map(s => `
           <tr>
@@ -575,6 +585,8 @@ function renderSignalsTable(signals) {
             <td class="num">${FX.formatConverted(s.stopLoss, currentCurrency)}</td>
             <td class="num">${FX.formatConverted(s.takeProfit, currentCurrency)}</td>
             <td class="num">${s.score > 0 ? "+" : ""}${s.score}</td>
+            <td><span class="outcome-badge ${s.outcome}">${s.outcome}</span></td>
+            <td class="num${s.returnPct == null ? " muted-cell" : s.returnPct >= 0 ? " up" : " down"}">${s.returnPct != null ? (s.returnPct >= 0 ? "+" : "") + s.returnPct.toFixed(2) + "%" : "—"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -649,7 +661,7 @@ function renderStrategy(candles) {
     text: s.side.toUpperCase(),
   })));
 
-  renderSignalsTable(result.signals);
+  renderSignalsTable(candles, result.signals);
 }
 
 async function loadIndicators() {

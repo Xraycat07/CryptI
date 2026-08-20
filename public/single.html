@@ -365,8 +365,10 @@ function renderStrategyOverlay(candles) {
 
   const buys = result.signals.filter(s => s.side === "buy").length;
   const sells = result.signals.filter(s => s.side === "sell").length;
+  const stats = Strategy.summarizeBacktest(Strategy.backtestSignals(candles, result.signals));
+  const winRateText = stats.winRatePct != null ? `${stats.winRatePct.toFixed(0)}% win rate` : "no closed trades yet";
   document.getElementById("strategySummary").innerHTML =
-    `<span class="up">${buys} buy</span> &middot; <span class="down">${sells} sell</span>`;
+    `<span class="up">${buys} buy</span> &middot; <span class="down">${sells} sell</span> &middot; ${winRateText}`;
 }
 
 document.getElementById("strategyToggle").addEventListener("change", () => renderCandles(lastCandlesUsd));

@@ -353,6 +353,49 @@
     return { swings, zones, trendlines, indicatorResults, totalScore, signals };
   }
 
+  // ---------- backtest ----------
+  // Walks forward from each signal to see which level got touched first:
+  // stop-loss ("loss"), take-profit ("win"), or neither by the end of the
+  // series ("open"). If both are touched within the same candle the
+  // ambiguous case is resolved as a loss (the more conservative read).
+  function backtestSignals(candles, signals) {
+    return signals.map((s) => {
+      let outcome = "open";
+      let returnPct = null;
+      let barsToResolve = null;
+
+      for (let i = s.index + 1; i < candles.length; i++) {
+        const c = candles[i];
+        const hitTP = s.side === "buy" ? c.high >= s.takeProfit : c.low <= s.takeProfit;
+        const hitSL = s.side === "buy" ? c.low <= s.stopLoss : c.high >= s.stopLoss;
+        if (!hitTP && !hitSL) continue;
+
+        const isWin = hitTP && !hitSL;
+        outcome = isWin ? "win" : "loss";
+        const exit = isWin ? s.takeProfit : s.stopLoss;
+        returnPct = s.side === "buy" ? ((exit - s.price) / s.price) * 100 : ((s.price - exit) / s.price) * 100;
+        barsToResolve = i - s.index;
+        break;
+      }
+
+      return { ...s, outcome, returnPct, barsToResolve };
+    });
+  }
+
+  function summarizeBacktest(results) {
+    const closed = results.filter((r) => r.outcome !== "open");
+    const wins = closed.filter((r) => r.outcome === "win").length;
+    const losses = closed.length - wins;
+    const avgReturnPct = closed.length ? closed.reduce((sum, r) => sum + r.returnPct, 0) / closed.length : null;
+    return {
+      total: results.length,
+      open: results.length - closed.length,
+      wins, losses,
+      winRatePct: closed.length ? (wins / closed.length) * 100 : null,
+      avgReturnPct,
+    };
+  }
+
   // Shared default strategy config — also the shape every page's config
   // form reads into. Kept here so Indicators and Single-coin can't drift
   // out of sync with each other.
@@ -387,6 +430,7 @@
     findSwingPoints, findSRZones, findTrendLines, lineValueAt,
     projectForward, extendTimes, applyIntervalAvailability,
     registerIndicator, runStrategy,
+    backtestSignals, summarizeBacktest,
     DEFAULT_CONFIG, STRATEGY_CONFIG_STORAGE_KEY, loadStoredStrategyConfig,
   };
 })(window);
