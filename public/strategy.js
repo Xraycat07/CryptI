@@ -396,6 +396,41 @@
     };
   }
 
+  // Applies a fixed lot size (currency amount per trade) against each
+  // closed trade's % return, in entry order, against a starting account
+  // equity — producing an equity curve and drawdown. A simplified model:
+  // each trade is sized independently off the fixed lot size, not off the
+  // then-current equity, and concurrent/overlapping positions aren't
+  // modeled as competing for the same capital.
+  function simulateEquity(backtestedSignals, { startingEquity = 10000, lotSize = 100 } = {}, startTime = null) {
+    const closed = backtestedSignals.filter((s) => s.outcome !== "open");
+    let equity = startingEquity;
+    let peak = startingEquity;
+    let maxDrawdownPct = 0;
+    const curve = [];
+    if (startTime != null) curve.push({ time: startTime, equity });
+
+    const trades = closed.map((s) => {
+      const pnl = lotSize * (s.returnPct / 100);
+      equity += pnl;
+      peak = Math.max(peak, equity);
+      const drawdownPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+      maxDrawdownPct = Math.max(maxDrawdownPct, drawdownPct);
+      curve.push({ time: s.time, equity });
+      return { ...s, pnl, equityAfter: equity };
+    });
+
+    return {
+      startingEquity,
+      endingEquity: equity,
+      totalReturnPct: ((equity - startingEquity) / startingEquity) * 100,
+      maxDrawdownPct,
+      tradeCount: closed.length,
+      trades,
+      curve,
+    };
+  }
+
   // Shared default strategy config — also the shape every page's config
   // form reads into. Kept here so Indicators and Single-coin can't drift
   // out of sync with each other.
@@ -411,6 +446,7 @@
     confluence: { minBullish: 3, minBearish: 3 },
     cooldownBars: 5,
     risk: { stopMode: "zone", stopPct: 2, riskReward: 2 },
+    equity: { startingEquity: 10000, lotSize: 100 },
   };
 
   const STRATEGY_CONFIG_STORAGE_KEY = "cryptoApiStrategyConfig";
@@ -430,7 +466,7 @@
     findSwingPoints, findSRZones, findTrendLines, lineValueAt,
     projectForward, extendTimes, applyIntervalAvailability,
     registerIndicator, runStrategy,
-    backtestSignals, summarizeBacktest,
+    backtestSignals, summarizeBacktest, simulateEquity,
     DEFAULT_CONFIG, STRATEGY_CONFIG_STORAGE_KEY, loadStoredStrategyConfig,
   };
 })(window);

@@ -175,6 +175,36 @@
   .strategy-actions { display: flex; align-items: center; gap: 10px; }
   .strategy-hint { font-size: 11px; color: var(--muted); }
 
+  /* strategy tabs */
+  .strategy-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .strategy-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 8px 4px;
+    margin-bottom: -1px;
+  }
+  .strategy-tab:hover { filter: none; color: var(--text); }
+  .strategy-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .strategy-tab-panel[hidden] { display: none; }
+
+  /* historical results */
+  .equity-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin: 16px 0;
+  }
+  .equity-kpi { background: #0e1117; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .equity-kpi-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+  .equity-kpi-value { font-size: 18px; font-weight: 600; }
+  .equity-kpi-value.up { color: var(--up); }
+  .equity-kpi-value.down { color: var(--down); }
+  #equity-chart { margin-bottom: 16px; }
+
   /* signals table */
   #signalsTable table { width: 100%; border-collapse: collapse; font-size: 12px; }
   #signalsTable th, #signalsTable td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -184,6 +214,13 @@
   #signalsTable td.num.up { color: var(--up); }
   #signalsTable td.num.down { color: var(--down); }
   #signalsTable td.muted-cell { color: var(--muted); }
+  #equityTradeLog table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #equityTradeLog th, #equityTradeLog td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  #equityTradeLog th { color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; }
+  #equityTradeLog td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #equityTradeLog th.num { text-align: right; }
+  #equityTradeLog td.num.up { color: var(--up); }
+  #equityTradeLog td.num.down { color: var(--down); }
   .side-badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
   .side-badge.buy { background: rgba(38,166,154,0.15); color: var(--up); }
   .side-badge.sell { background: rgba(239,83,80,0.15); color: var(--down); }
@@ -266,58 +303,86 @@
       <button id="toggleStrategyConfig" class="secondary-btn" type="button">Hide</button>
     </div>
     <div id="strategyConfig">
-      <div class="strategy-grid">
-        <div class="cfg-card">
-          <div class="cfg-title"><label><input type="checkbox" id="cfg-emaCross-enabled" checked> EMA cross</label></div>
-          <label>Fast <input type="number" id="cfg-emaCross-fast" value="20" min="2" max="300"></label>
-          <label>Slow <input type="number" id="cfg-emaCross-slow" value="50" min="2" max="400"></label>
+      <div class="strategy-tabs">
+        <button type="button" class="strategy-tab active" data-tab="config">Config</button>
+        <button type="button" class="strategy-tab" data-tab="results">Historical results</button>
+      </div>
+
+      <div id="strategyTabConfig" class="strategy-tab-panel">
+        <div class="strategy-grid">
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-emaCross-enabled" checked> EMA cross</label></div>
+            <label>Fast <input type="number" id="cfg-emaCross-fast" value="20" min="2" max="300"></label>
+            <label>Slow <input type="number" id="cfg-emaCross-slow" value="50" min="2" max="400"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-rsi-enabled" checked> RSI</label></div>
+            <label>Period <input type="number" id="cfg-rsi-period" value="14" min="2" max="100"></label>
+            <label>Oversold <input type="number" id="cfg-rsi-oversold" value="30" min="1" max="49"></label>
+            <label>Overbought <input type="number" id="cfg-rsi-overbought" value="70" min="51" max="99"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-macd-enabled" checked> MACD</label></div>
+            <label>Fast <input type="number" id="cfg-macd-fast" value="12" min="2" max="100"></label>
+            <label>Slow <input type="number" id="cfg-macd-slow" value="26" min="2" max="200"></label>
+            <label>Signal <input type="number" id="cfg-macd-signal" value="9" min="2" max="100"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-srZones-enabled" checked> Support/Resistance</label></div>
+            <label>Tolerance % <input type="number" id="cfg-srZones-tolerancePct" value="1.5" step="0.1" min="0.1" max="10"></label>
+            <label>Min touches <input type="number" id="cfg-srZones-minTouches" value="2" min="2" max="10"></label>
+            <label>Proximity % <input type="number" id="cfg-srZones-proximityPct" value="1" step="0.1" min="0.1" max="10"></label>
+            <label>Max zones <input type="number" id="cfg-srZones-maxZones" value="4" min="1" max="10"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-trendlines-enabled" checked> Trend lines</label></div>
+            <label>Tolerance % <input type="number" id="cfg-trendlines-tolerancePct" value="0.75" step="0.1" min="0.1" max="10"></label>
+            <label>Min touches <input type="number" id="cfg-trendlines-minTouches" value="2" min="2" max="10"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title">Confluence</div>
+            <label>Min bullish <input type="number" id="cfg-minBullish" value="3" min="1" max="5"></label>
+            <label>Min bearish <input type="number" id="cfg-minBearish" value="3" min="1" max="5"></label>
+            <label>Cooldown bars <input type="number" id="cfg-cooldown" value="5" min="0" max="60"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title">Risk</div>
+            <label>Stop mode
+              <select id="cfg-stopMode">
+                <option value="zone">Nearest zone</option>
+                <option value="pct">Percent</option>
+              </select>
+            </label>
+            <label>Stop % <input type="number" id="cfg-stopPct" value="2" step="0.1" min="0.1" max="20"></label>
+            <label>Risk:Reward <input type="number" id="cfg-riskReward" value="2" step="0.1" min="0.5" max="10"></label>
+          </div>
         </div>
-        <div class="cfg-card">
-          <div class="cfg-title"><label><input type="checkbox" id="cfg-rsi-enabled" checked> RSI</label></div>
-          <label>Period <input type="number" id="cfg-rsi-period" value="14" min="2" max="100"></label>
-          <label>Oversold <input type="number" id="cfg-rsi-oversold" value="30" min="1" max="49"></label>
-          <label>Overbought <input type="number" id="cfg-rsi-overbought" value="70" min="51" max="99"></label>
-        </div>
-        <div class="cfg-card">
-          <div class="cfg-title"><label><input type="checkbox" id="cfg-macd-enabled" checked> MACD</label></div>
-          <label>Fast <input type="number" id="cfg-macd-fast" value="12" min="2" max="100"></label>
-          <label>Slow <input type="number" id="cfg-macd-slow" value="26" min="2" max="200"></label>
-          <label>Signal <input type="number" id="cfg-macd-signal" value="9" min="2" max="100"></label>
-        </div>
-        <div class="cfg-card">
-          <div class="cfg-title"><label><input type="checkbox" id="cfg-srZones-enabled" checked> Support/Resistance</label></div>
-          <label>Tolerance % <input type="number" id="cfg-srZones-tolerancePct" value="1.5" step="0.1" min="0.1" max="10"></label>
-          <label>Min touches <input type="number" id="cfg-srZones-minTouches" value="2" min="2" max="10"></label>
-          <label>Proximity % <input type="number" id="cfg-srZones-proximityPct" value="1" step="0.1" min="0.1" max="10"></label>
-          <label>Max zones <input type="number" id="cfg-srZones-maxZones" value="4" min="1" max="10"></label>
-        </div>
-        <div class="cfg-card">
-          <div class="cfg-title"><label><input type="checkbox" id="cfg-trendlines-enabled" checked> Trend lines</label></div>
-          <label>Tolerance % <input type="number" id="cfg-trendlines-tolerancePct" value="0.75" step="0.1" min="0.1" max="10"></label>
-          <label>Min touches <input type="number" id="cfg-trendlines-minTouches" value="2" min="2" max="10"></label>
-        </div>
-        <div class="cfg-card">
-          <div class="cfg-title">Confluence</div>
-          <label>Min bullish <input type="number" id="cfg-minBullish" value="3" min="1" max="5"></label>
-          <label>Min bearish <input type="number" id="cfg-minBearish" value="3" min="1" max="5"></label>
-          <label>Cooldown bars <input type="number" id="cfg-cooldown" value="5" min="0" max="60"></label>
-        </div>
-        <div class="cfg-card">
-          <div class="cfg-title">Risk</div>
-          <label>Stop mode
-            <select id="cfg-stopMode">
-              <option value="zone">Nearest zone</option>
-              <option value="pct">Percent</option>
-            </select>
-          </label>
-          <label>Stop % <input type="number" id="cfg-stopPct" value="2" step="0.1" min="0.1" max="20"></label>
-          <label>Risk:Reward <input type="number" id="cfg-riskReward" value="2" step="0.1" min="0.5" max="10"></label>
+        <div class="strategy-actions">
+          <button id="applyStrategy" type="button">Apply strategy</button>
+          <button id="resetStrategy" class="secondary-btn" type="button">Reset to defaults</button>
+          <span class="strategy-hint">Filters apply live as you change them &mdash; saved locally in this browser. New indicators can be added via <code>Strategy.registerIndicator()</code> in strategy.js.</span>
         </div>
       </div>
-      <div class="strategy-actions">
-        <button id="applyStrategy" type="button">Apply strategy</button>
-        <button id="resetStrategy" class="secondary-btn" type="button">Reset to defaults</button>
-        <span class="strategy-hint">Filters apply live as you change them &mdash; saved locally in this browser. New indicators can be added via <code>Strategy.registerIndicator()</code> in strategy.js.</span>
+
+      <div id="strategyTabResults" class="strategy-tab-panel" hidden>
+        <div class="strategy-grid">
+          <div class="cfg-card">
+            <div class="cfg-title">Account</div>
+            <label>Equity <input type="number" id="cfg-startingEquity" value="10000" min="1" step="100"></label>
+            <label>Lot size <input type="number" id="cfg-lotSize" value="100" min="0.01" step="10"></label>
+          </div>
+        </div>
+        <span class="strategy-hint">Lot size is the currency amount applied per trade against its % return &mdash; a simplified model, not a full portfolio simulation (trades don't compete for capital).</span>
+        <div class="equity-kpi-row">
+          <div class="equity-kpi"><div class="equity-kpi-label">Starting equity</div><div class="equity-kpi-value" id="eqStart">—</div></div>
+          <div class="equity-kpi"><div class="equity-kpi-label">Ending equity</div><div class="equity-kpi-value" id="eqEnd">—</div></div>
+          <div class="equity-kpi"><div class="equity-kpi-label">Total return</div><div class="equity-kpi-value" id="eqReturn">—</div></div>
+          <div class="equity-kpi"><div class="equity-kpi-label">Max drawdown</div><div class="equity-kpi-value down" id="eqDrawdown">—</div></div>
+          <div class="equity-kpi"><div class="equity-kpi-label">Trades</div><div class="equity-kpi-value" id="eqTrades">—</div></div>
+          <div class="equity-kpi"><div class="equity-kpi-label">Win rate</div><div class="equity-kpi-value" id="eqWinRate">—</div></div>
+        </div>
+        <div id="equity-chart" style="height:160px;"></div>
+        <div id="equityTradeLog"></div>
       </div>
     </div>
   </div>
@@ -397,6 +462,15 @@ const macdHistSeries = macdChart.addHistogramSeries({ priceFormat: { type: "pric
 const macdLineSeries = macdChart.addLineSeries({ color: "#4f8cff", lineWidth: 1.5 });
 const macdSignalSeries = macdChart.addLineSeries({ color: "#e6b400", lineWidth: 1.5 });
 
+// Created eagerly (not lazily on tab-open) so it always has current data —
+// its container starts hidden behind the Historical results tab, so it's
+// explicitly resized once that tab is actually shown (see the tab click
+// handler below).
+const equityChart = LightweightCharts.createChart(document.getElementById("equity-chart"), chartTheme);
+const equitySeries = equityChart.addAreaSeries({
+  lineColor: "#4f8cff", topColor: "rgba(79,140,255,0.25)", bottomColor: "rgba(79,140,255,0.02)", lineWidth: 2,
+});
+
 const charts = [priceChart, rsiChart, macdChart];
 
 // keep the three time scales in sync
@@ -414,6 +488,9 @@ function resizeAll() {
   priceChart.resize(document.getElementById("price-chart").clientWidth, 400);
   rsiChart.resize(document.getElementById("rsi-chart").clientWidth, 160);
   macdChart.resize(document.getElementById("macd-chart").clientWidth, 160);
+  if (!document.getElementById("strategyTabResults").hidden) {
+    equityChart.resize(document.getElementById("equity-chart").clientWidth, 160);
+  }
 }
 window.addEventListener("resize", resizeAll);
 resizeAll();
@@ -445,6 +522,7 @@ function readConfigFromForm() {
     confluence: { minBullish: num("cfg-minBullish"), minBearish: num("cfg-minBearish") },
     cooldownBars: num("cfg-cooldown"),
     risk: { stopMode: document.getElementById("cfg-stopMode").value, stopPct: num("cfg-stopPct"), riskReward: num("cfg-riskReward") },
+    equity: { startingEquity: num("cfg-startingEquity"), lotSize: num("cfg-lotSize") },
   };
 }
 
@@ -476,6 +554,8 @@ function writeConfigToForm(cfg) {
   document.getElementById("cfg-stopMode").value = cfg.risk.stopMode;
   set("cfg-stopPct", cfg.risk.stopPct);
   set("cfg-riskReward", cfg.risk.riskReward);
+  set("cfg-startingEquity", cfg.equity.startingEquity);
+  set("cfg-lotSize", cfg.equity.lotSize);
 }
 
 const STORAGE_KEY = Strategy.STRATEGY_CONFIG_STORAGE_KEY;
@@ -485,6 +565,23 @@ document.getElementById("toggleStrategyConfig").addEventListener("click", (e) =>
   const el = document.getElementById("strategyConfig");
   el.hidden = !el.hidden;
   e.target.textContent = el.hidden ? "Configure" : "Hide";
+});
+
+// ---------- strategy tabs (Config / Historical results) ----------
+document.querySelectorAll(".strategy-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".strategy-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("strategyTabConfig").hidden = btn.dataset.tab !== "config";
+    document.getElementById("strategyTabResults").hidden = btn.dataset.tab !== "results";
+    if (btn.dataset.tab === "results") {
+      // The chart was created while its container was hidden (0 size) —
+      // it needs an explicit resize once it's actually visible.
+      const el = document.getElementById("equity-chart");
+      equityChart.resize(el.clientWidth, el.clientHeight);
+      equityChart.timeScale().fitContent();
+    }
+  });
 });
 
 // Every filter applies live — checkboxes/selects re-render immediately on
@@ -559,18 +656,17 @@ function renderTrendlines(trendlines, candles) {
   }
 }
 
-function renderSignalsTable(candles, signals) {
+function renderSignalsTable(backtested) {
   const tableEl = document.getElementById("signalsTable");
   const summaryEl = document.getElementById("signalsSummary");
-  if (!signals.length) {
+  if (!backtested.length) {
     tableEl.innerHTML = '<div class="empty-note">No signals with the current strategy config over this range.</div>';
     summaryEl.textContent = "0 signals";
     return;
   }
-  const backtested = Strategy.backtestSignals(candles, signals);
   const stats = Strategy.summarizeBacktest(backtested);
-  const buys = signals.filter(s => s.side === "buy").length;
-  const sells = signals.filter(s => s.side === "sell").length;
+  const buys = backtested.filter(s => s.side === "buy").length;
+  const sells = backtested.filter(s => s.side === "sell").length;
   const winRateText = stats.winRatePct != null ? `${stats.winRatePct.toFixed(0)}% win rate (${stats.wins}W/${stats.losses}L, ${stats.open} open)` : `${stats.open} open, none resolved yet`;
   summaryEl.textContent = `${buys} buy · ${sells} sell · ${winRateText}`;
 
@@ -589,6 +685,50 @@ function renderSignalsTable(candles, signals) {
             <td class="num">${s.score > 0 ? "+" : ""}${s.score}</td>
             <td><span class="outcome-badge ${s.outcome}">${s.outcome}</span></td>
             <td class="num${s.returnPct == null ? " muted-cell" : s.returnPct >= 0 ? " up" : " down"}">${s.returnPct != null ? (s.returnPct >= 0 ? "+" : "") + s.returnPct.toFixed(2) + "%" : "—"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderHistoricalResults(candles, backtested, cfg) {
+  const sim = Strategy.simulateEquity(backtested, cfg.equity, candles[0]?.time ?? null);
+
+  document.getElementById("eqStart").textContent = FX.formatConverted(sim.startingEquity, currentCurrency);
+  const endEl = document.getElementById("eqEnd");
+  endEl.textContent = FX.formatConverted(sim.endingEquity, currentCurrency);
+  endEl.className = "equity-kpi-value" + (sim.endingEquity >= sim.startingEquity ? " up" : " down");
+  const retEl = document.getElementById("eqReturn");
+  retEl.textContent = (sim.totalReturnPct >= 0 ? "+" : "") + sim.totalReturnPct.toFixed(2) + "%";
+  retEl.className = "equity-kpi-value" + (sim.totalReturnPct >= 0 ? " up" : " down");
+  document.getElementById("eqDrawdown").textContent = "-" + sim.maxDrawdownPct.toFixed(2) + "%";
+  document.getElementById("eqTrades").textContent = sim.tradeCount;
+  const stats = Strategy.summarizeBacktest(backtested);
+  document.getElementById("eqWinRate").textContent = stats.winRatePct != null ? stats.winRatePct.toFixed(0) + "%" : "—";
+
+  if (equitySeries) {
+    equitySeries.setData(sim.curve.length > 1 ? sim.curve.map(p => ({ time: p.time, value: p.equity })) : []);
+    if (!document.getElementById("strategyTabResults").hidden) equityChart.timeScale().fitContent();
+  }
+
+  const logEl = document.getElementById("equityTradeLog");
+  if (!sim.trades.length) {
+    logEl.innerHTML = '<div class="empty-note">No closed trades yet with this account setup.</div>';
+    return;
+  }
+  const rows = [...sim.trades].reverse().slice(0, 25);
+  logEl.innerHTML = `
+    <table>
+      <thead><tr><th>Time</th><th>Side</th><th class="num">Return</th><th class="num">P&amp;L</th><th class="num">Equity after</th></tr></thead>
+      <tbody>
+        ${rows.map(t => `
+          <tr>
+            <td>${new Date(t.time * 1000).toLocaleString()}</td>
+            <td><span class="side-badge ${t.side}">${t.side.toUpperCase()}</span></td>
+            <td class="num ${t.returnPct >= 0 ? "up" : "down"}">${t.returnPct >= 0 ? "+" : ""}${t.returnPct.toFixed(2)}%</td>
+            <td class="num ${t.pnl >= 0 ? "up" : "down"}">${t.pnl >= 0 ? "+" : ""}${FX.formatConverted(t.pnl, currentCurrency)}</td>
+            <td class="num">${FX.formatConverted(t.equityAfter, currentCurrency)}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -663,7 +803,9 @@ function renderStrategy(candles) {
     text: s.side.toUpperCase(),
   })));
 
-  renderSignalsTable(candles, result.signals);
+  const backtested = Strategy.backtestSignals(candles, result.signals);
+  renderSignalsTable(backtested);
+  renderHistoricalResults(candles, backtested, cfg);
 }
 
 async function loadIndicators() {
