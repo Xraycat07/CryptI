@@ -77,7 +77,6 @@
     padding: 6px 10px;
     font-size: 13px;
   }
-  input#symbols { width: 260px; }
   button {
     background: var(--accent);
     border: 1px solid var(--accent);
@@ -113,16 +112,76 @@
   }
   .setup-banner a { color: var(--accent); }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
+  .panel {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
-    overflow: hidden;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* chip editor — used for both stock tickers and forex currency codes */
+  .chip-editor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(79,140,255,0.12);
+    border: 1px solid rgba(79,140,255,0.35);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 4px 6px 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .chip-remove {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 0 4px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .chip-remove:hover { color: var(--down); filter: none; }
+  .chip-input {
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    padding: 5px 12px;
+    font-size: 12px;
+    width: 110px;
+  }
+  .chip-input:focus { outline: none; border-color: var(--accent); }
+  .chip-hint { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
   }
   th, td {
-    padding: 12px 14px;
+    padding: 10px 12px;
     text-align: right;
     font-size: 13px;
     border-bottom: 1px solid var(--border);
@@ -158,9 +217,6 @@
     <a href="/news.html">News</a>
   </nav>
   <a href="/luno.html" class="luno-link">🔒 Luno</a>
-  <label>Symbols
-    <input type="text" id="symbols" value="AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,SPY,QQQ">
-  </label>
   <label>Currency
     <select id="currency">
       <option value="USD">USD $</option>
@@ -179,27 +235,37 @@
     then add <code>FINNHUB_API_KEY=your-key</code> to your <code>.env</code> file and restart the server.
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Ticker</th>
-        <th>Price</th>
-        <th>Change</th>
-        <th>Change %</th>
-        <th>Day high</th>
-        <th>Day low</th>
-        <th>Prev close</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="panel">
+    <div class="panel-header"><h2>Stocks</h2></div>
+    <div id="stockChips" class="chip-editor"></div>
+    <div class="chip-hint">Type a ticker and press Enter to add it, or click × to remove one.</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Ticker</th><th>Price</th><th>Change</th><th>Change %</th><th>Day high</th><th>Day low</th><th>Prev close</th>
+        </tr>
+      </thead>
+      <tbody id="stockRows"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Forex</h2></div>
+    <div id="forexChips" class="chip-editor"></div>
+    <div class="chip-hint">Type a 3-letter currency code (e.g. EUR) and press Enter to add it. Rates are free, no API key needed.</div>
+    <table>
+      <thead>
+        <tr><th>Pair</th><th>Rate</th></tr>
+      </thead>
+      <tbody id="forexRows"></tbody>
+    </table>
+  </div>
 </main>
 
 <script src="/fx.js"></script>
 <script>
 const API_BASE = "";
 const statusEl = document.getElementById("status");
-const rowsEl = document.getElementById("rows");
 const refreshBtn = document.getElementById("refresh");
 const setupBanner = document.getElementById("setupBanner");
 
@@ -210,24 +276,76 @@ function setStatus(msg, isError) {
 
 let currentCurrency = "USD";
 let currentRate = 1;
-let lastQuotes = [];
-
 function fmt(usdValue) {
   return FX.formatMoney(usdValue, currentCurrency, currentRate);
 }
 
-function renderRows(quotes) {
-  const valid = quotes.filter(q => !q.error);
-  const errored = quotes.filter(q => q.error);
+// A reusable pill-list editor: renders `values` as removable chips plus a
+// trailing text input (Enter to add). Calls onChange(values) after any add
+// or remove so the caller can persist/refetch.
+function createChipEditor(containerEl, initialValues, { placeholder, transform, onChange }) {
+  let values = [...initialValues];
 
-  setupBanner.hidden = !errored.some(q => /api key not configured/i.test(q.error || ""));
+  function render() {
+    containerEl.innerHTML = "";
+    for (const v of values) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      const label = document.createElement("span");
+      label.textContent = v;
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "chip-remove";
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        values = values.filter((x) => x !== v);
+        render();
+        onChange(values);
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      containerEl.appendChild(chip);
+    }
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = placeholder || "Add…";
+    input.className = "chip-input";
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || !input.value.trim()) return;
+      e.preventDefault();
+      const v = transform ? transform(input.value.trim()) : input.value.trim();
+      if (v && !values.includes(v)) {
+        values.push(v);
+        input.value = "";
+        render();
+        onChange(values);
+      } else {
+        input.value = "";
+      }
+    });
+    containerEl.appendChild(input);
+  }
 
-  if (!valid.length) {
-    rowsEl.innerHTML = '<tr><td colspan="7"><div class="empty-note">No stock data available.</div></td></tr>';
+  render();
+  return { getValues: () => values };
+}
+
+// ---------- Stocks ----------
+let lastStockQuotes = [];
+
+function renderStockRows(quotes) {
+  const rowsEl = document.getElementById("stockRows");
+  const valid = quotes.filter((q) => !q.error);
+  const errored = quotes.filter((q) => q.error);
+
+  setupBanner.hidden = !errored.some((q) => /api key not configured/i.test(q.error || ""));
+
+  if (!valid.length && !errored.length) {
+    rowsEl.innerHTML = '<tr><td colspan="7"><div class="empty-note">Add a ticker above to get started.</div></td></tr>';
     return;
   }
 
-  rowsEl.innerHTML = valid.map(q => `
+  rowsEl.innerHTML = valid.map((q) => `
     <tr>
       <td class="ticker">${q.symbol}</td>
       <td>${fmt(q.current)}</td>
@@ -237,7 +355,7 @@ function renderRows(quotes) {
       <td class="muted-cell">${fmt(q.low)}</td>
       <td class="muted-cell">${fmt(q.previousClose)}</td>
     </tr>
-  `).join("") + errored.map(q => `
+  `).join("") + errored.map((q) => `
     <tr>
       <td class="ticker">${q.symbol}</td>
       <td colspan="6" class="muted-cell" style="text-align:left">${q.error}</td>
@@ -245,14 +363,9 @@ function renderRows(quotes) {
   `).join("");
 }
 
-FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
-  currentCurrency = currency;
-  currentRate = rate;
-  renderRows(lastQuotes);
-});
-
 async function loadStocks() {
-  const symbols = document.getElementById("symbols").value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+  const symbols = stockChips.getValues();
+  if (!symbols.length) { renderStockRows([]); return; }
   refreshBtn.disabled = true;
   setStatus("Loading…");
 
@@ -261,10 +374,10 @@ async function loadStocks() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
 
-    lastQuotes = body.quotes;
-    renderRows(lastQuotes);
+    lastStockQuotes = body.quotes;
+    renderStockRows(lastStockQuotes);
 
-    const failed = lastQuotes.filter(q => q.error).length;
+    const failed = lastStockQuotes.filter((q) => q.error).length;
     setStatus(failed ? `Updated ${new Date().toLocaleTimeString()} · ${failed} symbol${failed === 1 ? "" : "s"} failed` : "Updated " + new Date().toLocaleTimeString(), !!failed);
   } catch (err) {
     setStatus("Error: " + err.message, true);
@@ -273,15 +386,81 @@ async function loadStocks() {
   }
 }
 
+// ---------- Forex ----------
+// Market convention: some pairs quote USD as the base (USD/JPY = JPY per
+// $1), others quote it as the counter (EUR/USD = $ per 1 EUR) — this flips
+// display for the currencies conventionally quoted "against" the dollar.
+const FOREX_QUOTE_AGAINST_USD = new Set(["EUR", "GBP", "AUD", "NZD"]);
+let lastForexRates = {};
+
+function forexPairLabel(currency) {
+  return FOREX_QUOTE_AGAINST_USD.has(currency) ? `${currency}/USD` : `USD/${currency}`;
+}
+function forexPairValue(currency, rates) {
+  const rate = rates[currency];
+  if (rate == null) return null;
+  return FOREX_QUOTE_AGAINST_USD.has(currency) ? 1 / rate : rate;
+}
+
+function renderForexRows(currencies, rates) {
+  const rowsEl = document.getElementById("forexRows");
+  if (!currencies.length) {
+    rowsEl.innerHTML = '<tr><td colspan="2"><div class="empty-note">Add a currency above to get started.</div></td></tr>';
+    return;
+  }
+  rowsEl.innerHTML = currencies.map((c) => {
+    const value = forexPairValue(c, rates);
+    return `
+      <tr>
+        <td class="ticker">${forexPairLabel(c)}</td>
+        <td>${value != null ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function loadForex() {
+  const currencies = forexChips.getValues();
+  if (!currencies.length) { renderForexRows([], {}); return; }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/forex/rates?currencies=${currencies.join(",")}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    lastForexRates = body.rates;
+    renderForexRows(currencies, lastForexRates);
+  } catch (err) {
+    document.getElementById("forexRows").innerHTML = `<tr><td colspan="2"><div class="empty-note">Error: ${err.message}</div></td></tr>`;
+  }
+}
+
+const stockChips = createChipEditor(document.getElementById("stockChips"),
+  ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "SPY", "QQQ"],
+  { placeholder: "e.g. AAPL", transform: (v) => v.toUpperCase(), onChange: loadStocks });
+
+const forexChips = createChipEditor(document.getElementById("forexChips"),
+  ["EUR", "GBP", "JPY", "ZAR", "AUD", "CAD", "CHF", "NZD"],
+  { placeholder: "e.g. EUR", transform: (v) => v.toUpperCase().slice(0, 3), onChange: loadForex });
+
+FX.bindCurrencySelect(document.getElementById("currency"), (currency, rate) => {
+  currentCurrency = currency;
+  currentRate = rate;
+  renderStockRows(lastStockQuotes);
+});
+
+function loadAll() {
+  loadStocks();
+  loadForex();
+}
+
 let autoTimer = null;
-refreshBtn.addEventListener("click", loadStocks);
-document.getElementById("symbols").addEventListener("change", loadStocks);
+refreshBtn.addEventListener("click", loadAll);
 document.getElementById("auto").addEventListener("change", (e) => {
-  if (e.target.checked) autoTimer = setInterval(loadStocks, 30000);
+  if (e.target.checked) autoTimer = setInterval(loadAll, 30000);
   else clearInterval(autoTimer);
 });
 
-loadStocks();
+loadAll();
 </script>
 
 </body>

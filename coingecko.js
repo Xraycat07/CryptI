@@ -54,6 +54,31 @@ async function getUsdZarRate({ force = false } = {}) {
   return { rate, cached: false };
 }
 
+const DEFAULT_FOREX_CURRENCIES = ["EUR", "GBP", "JPY", "ZAR", "AUD", "CAD", "CHF", "NZD"];
+const forexCache = { rates: null, expiresAt: 0, currencies: "" };
+
+// Rates for arbitrary currencies against USD, using the same USD-pegged
+// stablecoin technique as getUsdZarRate — one free CoinGecko call covers
+// every currency at once, no separate forex API/key needed.
+async function getForexRates(currencies = DEFAULT_FOREX_CURRENCIES, { force = false } = {}) {
+  const key = cacheKey(currencies);
+  if (!force && forexCache.rates && forexCache.currencies === key && forexCache.expiresAt > Date.now()) {
+    return { rates: forexCache.rates, cached: true };
+  }
+  const vsCurrencies = ["usd", ...currencies.map((c) => c.toLowerCase())].join(",");
+  const data = await fetchJson(`/simple/price?ids=usd-coin&vs_currencies=${vsCurrencies}`);
+  const usd = data["usd-coin"].usd;
+  const rates = {};
+  for (const c of currencies) {
+    const v = data["usd-coin"][c.toLowerCase()];
+    if (v != null) rates[c.toUpperCase()] = v / usd;
+  }
+  forexCache.rates = rates;
+  forexCache.currencies = key;
+  forexCache.expiresAt = Date.now() + FX_TTL_MS;
+  return { rates, cached: false };
+}
+
 async function getDailyHistory(coin, days) {
   return fetchJson(`/coins/${coin}/market_chart?vs_currency=usd&days=${days}&interval=daily`);
 }
@@ -69,4 +94,7 @@ async function getHourlyHistory(coin, hours) {
   };
 }
 
-module.exports = { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate };
+module.exports = {
+  DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate,
+  getForexRates, DEFAULT_FOREX_CURRENCIES,
+};

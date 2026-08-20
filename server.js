@@ -3,7 +3,7 @@ require("dotenv").config();
 const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
-const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate } = require("./coingecko");
+const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate, getForexRates, DEFAULT_FOREX_CURRENCIES } = require("./coingecko");
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory } = require("./luno");
@@ -215,6 +215,20 @@ app.get("/api/stocks/quotes", async (req, res) => {
       : DEFAULT_SYMBOLS;
     const quotes = await getQuotes(symbols);
     res.json({ quotes });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Forex rates against USD (free, no API key — see coingecko.js)
+app.get("/api/forex/rates", async (req, res) => {
+  try {
+    const currencies = req.query.currencies
+      ? req.query.currencies.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean)
+      : DEFAULT_FOREX_CURRENCIES;
+    const force = req.query.force === "true";
+    const { rates, cached } = await getForexRates(currencies, { force });
+    res.json({ base: "USD", rates, cached });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
