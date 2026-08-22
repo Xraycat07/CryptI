@@ -7,7 +7,7 @@ const { OAuth2Client } = require("google-auth-library");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate, getForexRates, DEFAULT_FOREX_CURRENCIES } = require("./coingecko");
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
-const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getAccountTransactions, getFeeInfo } = require("./luno");
+const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
 const { startBotLoop, checkOnce: runBotCheckOnce, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus } = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
@@ -319,6 +319,17 @@ app.get("/api/luno/market", async (req, res) => {
   try {
     const tickers = await getTickers();
     res.json({ tickers });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Per-pair trading rules (decimal precision, min/max volume) — the frontend
+// uses this to round order volume/price to what Luno's postorder will accept.
+app.get("/api/luno/markets", async (req, res) => {
+  try {
+    const markets = await getMarketInfo();
+    res.json({ markets });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }

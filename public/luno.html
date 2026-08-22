@@ -1727,8 +1727,10 @@ async function loadBotProposals() {
 }
 
 // Sizes an accepted proposal as a limit order at the signal price: sells
-// use the full held balance, buys spend the fixed botBuyZar amount.
-function applyBotProposalToReview(asset, side, price) {
+// use the full held balance, buys spend the fixed botBuyZar amount. The raw
+// (unrounded) volume/price are handed to reviewOrder, which rounds them to
+// this pair's actual precision before anything is submitted.
+async function applyBotProposalToReview(asset, side, price) {
   const pair = `${asset}ZAR`;
   const px = Number(price);
   let volume = 0;
@@ -1738,7 +1740,6 @@ function applyBotProposalToReview(asset, side, price) {
   } else if (px > 0) {
     volume = botBuyZar / px;
   }
-  const volumeStr = volume > 0 ? volume.toFixed(8) : "";
 
   setSide(side);
   document.getElementById("orderPair").value = pair;
@@ -1746,10 +1747,10 @@ function applyBotProposalToReview(asset, side, price) {
   document.getElementById("orderPrice").value = "";
   togglePriceField();
   document.getElementById("orderPrice").value = px.toFixed(2);
-  document.getElementById("orderVolume").value = volumeStr;
+  document.getElementById("orderVolume").value = volume > 0 ? volume : "";
   document.getElementById("orderPanel").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  reviewOrder(side, pair, "limit", volumeStr, px.toFixed(2));
+  await reviewOrder(side, pair, "limit", volume, px);
 }
 
 document.getElementById("botProposals").addEventListener("click", async (evt) => {
@@ -1758,7 +1759,7 @@ document.getElementById("botProposals").addEventListener("click", async (evt) =>
   if (acceptBtn) {
     const { id, asset, side, price } = acceptBtn.dataset;
     await fetch(`/api/luno/bot/proposals/${id}/accept`, { method: "POST" });
-    applyBotProposalToReview(asset, side, price);
+    await applyBotProposalToReview(asset, side, price);
     loadBotProposals();
   } else if (dismissBtn) {
     await fetch(`/api/luno/bot/proposals/${dismissBtn.dataset.id}/dismiss`, { method: "POST" });
@@ -2012,10 +2013,41 @@ document.getElementById("orderPair").addEventListener("change", togglePriceField
 document.getElementById("orderVolume").addEventListener("input", updateFeeEstimate);
 document.getElementById("orderPrice").addEventListener("input", updateFeeEstimate);
 
+// Per-pair trading rules (decimal precision, min volume) from Luno — needed
+// because postorder rejects over-precise values with a generic "One or more
+// arguments are invalid" (e.g. XBTZAR prices must be whole Rand, XRPZAR
+// volumes must be whole XRP). Fetched once and cached for the session.
+let marketInfoByPair = {};
+async function loadMarketInfo() {
+  if (Object.keys(marketInfoByPair).length) return;
+  try {
+    const res = await fetch("/api/luno/markets");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    for (const m of body.markets || []) marketInfoByPair[m.market_id] = m;
+  } catch {
+    // reviewOrder falls back to conservative defaults below if this failed.
+  }
+}
+function getMarketRule(pair) {
+  const m = marketInfoByPair[pair];
+  return {
+    volumeScale: m ? Number(m.volume_scale) : 6,
+    priceScale: m ? Number(m.price_scale) : 2,
+    minVolume: m ? Number(m.min_volume) : 0,
+  };
+}
+// Rounds down rather than toFixed's round-half-up, so a sell volume never
+// ends up requesting more than the wallet actually holds.
+function floorToScale(value, scale) {
+  const factor = 10 ** scale;
+  return (Math.floor(Number(value) * factor) / factor).toFixed(scale);
+}
+
 // Shared by the manual "Review order" button and by an accepted bot
 // proposal (which skips straight here with a computed volume/price) —
 // either way, placing the real order still requires the Confirm click.
-function reviewOrder(side, pair, orderType, volume, price) {
+async function reviewOrder(side, pair, orderType, volume, price) {
   const orderMsg = document.getElementById("orderMsg");
   const orderConfirm = document.getElementById("orderConfirm");
   orderMsg.textContent = "";
@@ -2027,6 +2059,24 @@ function reviewOrder(side, pair, orderType, volume, price) {
   if (!pair) { orderMsg.textContent = "Pick a pair first."; orderMsg.className = "order-msg error"; return; }
   if (!volume || Number(volume) <= 0) { orderMsg.textContent = "Enter a volume greater than zero."; orderMsg.className = "order-msg error"; return; }
   if (orderType === "limit" && (!price || Number(price) <= 0)) { orderMsg.textContent = "Enter a limit price greater than zero."; orderMsg.className = "order-msg error"; return; }
+
+  await loadMarketInfo();
+  const { volumeScale, priceScale, minVolume } = getMarketRule(pair);
+  volume = floorToScale(volume, volumeScale);
+  if (orderType === "limit") price = Number(price).toFixed(priceScale);
+  document.getElementById("orderVolume").value = volume;
+  if (orderType === "limit") document.getElementById("orderPrice").value = price;
+
+  if (Number(volume) <= 0) {
+    orderMsg.textContent = `Volume rounds to zero at ${pair}'s ${volumeScale}-decimal precision.`;
+    orderMsg.className = "order-msg error";
+    return;
+  }
+  if (minVolume && Number(volume) < minVolume) {
+    orderMsg.textContent = `Minimum order size for ${pair} is ${minVolume} ${asset}.`;
+    orderMsg.className = "order-msg error";
+    return;
+  }
 
   if (side === "sell") {
     const holding = latestHoldings.find((h) => h.asset === asset);
@@ -2069,8 +2119,8 @@ function reviewOrder(side, pair, orderType, volume, price) {
   document.getElementById("confirmOrderBtn").addEventListener("click", () => submitOrder(params));
 }
 
-document.getElementById("reviewOrder").addEventListener("click", () => {
-  reviewOrder(
+document.getElementById("reviewOrder").addEventListener("click", async () => {
+  await reviewOrder(
     currentSide(),
     document.getElementById("orderPair").value,
     document.getElementById("orderType").value,

@@ -109,6 +109,21 @@ async function getTickers() {
   return data.tickers || [];
 }
 
+// Public per-pair trading rules (no auth) — volume_scale/price_scale are the
+// max decimal places Luno accepts for that pair (e.g. XBTZAR prices must be
+// whole Rand, XRPZAR volumes must be whole XRP); postorder rejects with
+// "One or more arguments are invalid" if either is over-precise.
+async function getMarketInfo() {
+  const res = await fetch(`${BASE_URL}/api/exchange/1/markets`);
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
+  return data.markets || [];
+}
+
 // Daily candles for a pair, requires auth (unlike the ticker endpoint).
 // Returns chronological ascending candles. Luno caps a single response at
 // ~1000 candles counting forward from `since` — so for a `since` more than
@@ -157,4 +172,4 @@ async function cancelOrder(orderId) {
   return lunoRequest("POST", "/api/1/stoporder", { order_id: orderId });
 }
 
-module.exports = { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getCandleHistory, getAccountTransactions, getFeeInfo };
+module.exports = { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getCandleHistory, getAccountTransactions, getFeeInfo };
