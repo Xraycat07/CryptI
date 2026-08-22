@@ -2,8 +2,9 @@
 // buy/sell signal — the same indicator engine as the Trading signal panel
 // (EMA cross, RSI, MACD, S/R zones, trendlines) — and queues a proposal for
 // you to approve or reject. It never places an order itself; "accepting" a
-// proposal only pre-fills the existing order form, which still requires the
-// normal Review -> Confirm flow before any real trade happens.
+// proposal jumps straight to the order form's Confirm step (as a limit
+// order at the signal price, sized from BUY_ZAR / the full held balance),
+// but placing the real order still requires that explicit Confirm click.
 //
 // Runs independently of the browser (checked on a server-side interval), so
 // proposals accumulate even if no one has the dashboard open, and persist
@@ -19,7 +20,16 @@ const PROPOSALS_FILE = path.join(DATA_DIR, "proposals.json");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 
 const SIGNAL_DAYS = 90;
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
+// Signals are still based on daily candles, but the current day's candle
+// keeps updating intraday — checking more often just shortens how long a
+// fresh signal sits unnoticed before it shows up as a proposal.
+const CHECK_INTERVAL_MINUTES = Number(process.env.LUNO_BOT_CHECK_INTERVAL_MINUTES) || 60;
+const CHECK_INTERVAL_MS = CHECK_INTERVAL_MINUTES * 60 * 1000;
+
+// ZAR amount to spend on an accepted buy proposal — sells always use the
+// full held balance of the asset instead, since there's no equivalent
+// "how much to keep" question there.
+const BUY_ZAR = Number(process.env.LUNO_BOT_BUY_ZAR) || 500;
 
 async function loadJson(file, fallback) {
   try {
@@ -109,6 +119,10 @@ async function getState() {
   return loadJson(STATE_FILE, { lastCheckedAt: null });
 }
 
+function getConfig() {
+  return { buyZar: BUY_ZAR };
+}
+
 async function setProposalStatus(id, status) {
   const proposals = await loadJson(PROPOSALS_FILE, []);
   const proposal = proposals.find((p) => p.id === id);
@@ -130,4 +144,4 @@ function startBotLoop() {
   }, CHECK_INTERVAL_MS);
 }
 
-module.exports = { startBotLoop, checkOnce, getProposals, getState, setProposalStatus };
+module.exports = { startBotLoop, checkOnce, getProposals, getState, getConfig, setProposalStatus };

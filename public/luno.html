@@ -332,7 +332,7 @@
       </div>
       <div id="botProposals"><div class="empty">Loading…</div></div>
       <button id="botCheckNow" class="secondary-btn" type="button" style="margin-top:10px;">Check now</button>
-      <div class="trend-disclaimer">Checks your held, ZAR-priced coins once a day for a fresh buy/sell signal &mdash; the same indicator engine as the Trading signal panel below, run server-side so it keeps watching even with this tab closed. It never places a trade itself: Accept only pre-fills the order form below for you to review and confirm.</div>
+      <div class="trend-disclaimer">Checks your held, ZAR-priced coins once a day for a fresh buy/sell signal &mdash; the same indicator engine as the Trading signal panel below, run server-side so it keeps watching even with this tab closed. It never places a trade itself: Accept jumps straight to the order form's Confirm step below (limit order at the signal price) &mdash; nothing is sent to Luno until you click Confirm there.</div>
     </div>
 
     <div class="panel">
@@ -1688,7 +1688,7 @@ function renderBotProposals(proposals) {
       <div class="row"><span>Entry</span><strong>${zar(p.price)}</strong></div>
       <div class="row"><span>Stop / Target</span><strong>${zar(p.stopLoss)} / ${zar(p.takeProfit)}</strong></div>
       <div class="confirm-actions">
-        <button type="button" class="bot-accept-btn" data-id="${p.id}" data-asset="${p.asset}" data-side="${p.side}" data-price="${p.price}">Accept &amp; review order</button>
+        <button type="button" class="bot-accept-btn" data-id="${p.id}" data-asset="${p.asset}" data-side="${p.side}" data-price="${p.price}">Accept &amp; confirm order</button>
         <button type="button" class="secondary-btn bot-dismiss-btn" data-id="${p.id}">Dismiss</button>
       </div>
     `;
@@ -1706,6 +1706,8 @@ function updateTradeTabBadge(pendingCount) {
   }
 }
 
+let botBuyZar = 500;
+
 async function loadBotProposals() {
   const el = document.getElementById("botProposals");
   try {
@@ -1713,6 +1715,7 @@ async function loadBotProposals() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     const proposals = body.proposals || [];
+    if (body.buyZar) botBuyZar = body.buyZar;
     renderBotProposals(proposals);
     updateTradeTabBadge(proposals.filter((p) => p.status === "pending").length);
     document.getElementById("botLastChecked").textContent = body.lastCheckedAt
@@ -1723,13 +1726,39 @@ async function loadBotProposals() {
   }
 }
 
+// Sizes an accepted proposal as a limit order at the signal price: sells
+// use the full held balance, buys spend the fixed botBuyZar amount.
+function applyBotProposalToReview(asset, side, price) {
+  const pair = `${asset}ZAR`;
+  const px = Number(price);
+  let volume = 0;
+  if (side === "sell") {
+    const holding = latestHoldings.find((h) => h.asset === asset);
+    volume = holding ? holding.available : 0;
+  } else if (px > 0) {
+    volume = botBuyZar / px;
+  }
+  const volumeStr = volume > 0 ? volume.toFixed(8) : "";
+
+  setSide(side);
+  document.getElementById("orderPair").value = pair;
+  document.getElementById("orderType").value = "limit";
+  document.getElementById("orderPrice").value = "";
+  togglePriceField();
+  document.getElementById("orderPrice").value = px.toFixed(2);
+  document.getElementById("orderVolume").value = volumeStr;
+  document.getElementById("orderPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+
+  reviewOrder(side, pair, "limit", volumeStr, px.toFixed(2));
+}
+
 document.getElementById("botProposals").addEventListener("click", async (evt) => {
   const acceptBtn = evt.target.closest(".bot-accept-btn");
   const dismissBtn = evt.target.closest(".bot-dismiss-btn");
   if (acceptBtn) {
     const { id, asset, side, price } = acceptBtn.dataset;
     await fetch(`/api/luno/bot/proposals/${id}/accept`, { method: "POST" });
-    applySignalToOrderForm(asset, side, price);
+    applyBotProposalToReview(asset, side, price);
     loadBotProposals();
   } else if (dismissBtn) {
     await fetch(`/api/luno/bot/proposals/${dismissBtn.dataset.id}/dismiss`, { method: "POST" });
@@ -1983,18 +2012,16 @@ document.getElementById("orderPair").addEventListener("change", togglePriceField
 document.getElementById("orderVolume").addEventListener("input", updateFeeEstimate);
 document.getElementById("orderPrice").addEventListener("input", updateFeeEstimate);
 
-document.getElementById("reviewOrder").addEventListener("click", () => {
+// Shared by the manual "Review order" button and by an accepted bot
+// proposal (which skips straight here with a computed volume/price) —
+// either way, placing the real order still requires the Confirm click.
+function reviewOrder(side, pair, orderType, volume, price) {
   const orderMsg = document.getElementById("orderMsg");
   const orderConfirm = document.getElementById("orderConfirm");
   orderMsg.textContent = "";
   orderMsg.className = "order-msg";
   orderConfirm.innerHTML = "";
 
-  const side = currentSide();
-  const pair = document.getElementById("orderPair").value;
-  const orderType = document.getElementById("orderType").value;
-  const volume = document.getElementById("orderVolume").value;
-  const price = document.getElementById("orderPrice").value;
   const asset = pair.replace(/ZAR$/, "");
 
   if (!pair) { orderMsg.textContent = "Pick a pair first."; orderMsg.className = "order-msg error"; return; }
@@ -2040,6 +2067,16 @@ document.getElementById("reviewOrder").addEventListener("click", () => {
   `;
   document.getElementById("cancelReviewBtn").addEventListener("click", () => { orderConfirm.innerHTML = ""; });
   document.getElementById("confirmOrderBtn").addEventListener("click", () => submitOrder(params));
+}
+
+document.getElementById("reviewOrder").addEventListener("click", () => {
+  reviewOrder(
+    currentSide(),
+    document.getElementById("orderPair").value,
+    document.getElementById("orderType").value,
+    document.getElementById("orderVolume").value,
+    document.getElementById("orderPrice").value
+  );
 });
 
 async function submitOrder(params) {

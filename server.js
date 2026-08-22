@@ -8,7 +8,7 @@ const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, ge
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
-const { startBotLoop, checkOnce: runBotCheckOnce, getProposals: getBotProposals, getState: getBotState, setProposalStatus: setBotProposalStatus } = require("./luno-bot");
+const { startBotLoop, checkOnce: runBotCheckOnce, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus } = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
 
 const app = express();
@@ -330,11 +330,12 @@ app.get("/api/luno/transactions", async (req, res) => {
   }
 });
 
-// The bot's queued buy/sell proposals — it only ever suggests, never trades.
+// The bot's queued buy/sell proposals — it only ever suggests, never trades
+// on its own; accepting one still requires an explicit Confirm click.
 app.get("/api/luno/bot/proposals", async (req, res) => {
   try {
     const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
-    res.json({ proposals, lastCheckedAt: state.lastCheckedAt });
+    res.json({ proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
@@ -345,7 +346,7 @@ app.post("/api/luno/bot/check-now", async (req, res) => {
   try {
     const added = await runBotCheckOnce();
     const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
-    res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt });
+    res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
