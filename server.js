@@ -72,9 +72,8 @@ function isValidSession(id) {
 }
 
 function requireLunoSession(req, res, next) {
-  const expectedUser = process.env.LUNO_APP_USER;
-  const expectedPass = process.env.LUNO_APP_PASSWORD;
-  if (!expectedUser || !expectedPass) return next();
+  const passwordAuthEnabled = Boolean(process.env.LUNO_APP_USER && process.env.LUNO_APP_PASSWORD);
+  if (!passwordAuthEnabled && !GOOGLE_CLIENT_ID) return next();
 
   const cookies = parseCookies(req);
   if (isValidSession(cookies[SESSION_COOKIE])) return next();
