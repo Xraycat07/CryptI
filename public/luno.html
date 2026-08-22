@@ -2089,6 +2089,16 @@ async function reviewOrder(side, pair, orderType, volume, price) {
       orderMsg.className = "order-msg error";
       return;
     }
+  } else {
+    // A limit buy reserves volume*price in ZAR immediately; a market buy's
+    // volume *is* the ZAR amount (see the fee-estimate comment below).
+    const zarNeeded = orderType === "market" ? Number(volume) : Number(volume) * Number(price);
+    const zarAvailable = availableQtyFor("ZAR");
+    if (zarNeeded > zarAvailable + 1e-8) {
+      orderMsg.textContent = `This needs ${zar(zarNeeded)} but only ${zar(zarAvailable)} is available in your ZAR balance.`;
+      orderMsg.className = "order-msg error";
+      return;
+    }
   }
 
   const params = { pair, orderType };
