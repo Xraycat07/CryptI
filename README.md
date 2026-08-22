@@ -41,3 +41,16 @@ Opens on `http://localhost:3001` (or `$PORT` if set).
 ## Deploying
 
 This is a stateful Node process (in-memory caching), so it needs a real host — not GitHub Pages (static-only). Any Node-friendly host works: point it at this repo, set the build command to `npm install` and the start command to `npm start`. The server already reads `process.env.PORT`.
+
+### Luno tab sign-in
+
+The Luno tab (page + `/api/luno/*`) is gated by a session cookie once either auth method below is configured; with neither set, it's open like the rest of the dashboard.
+
+- **Password** — set `LUNO_APP_USER` and `LUNO_APP_PASSWORD`.
+- **Google sign-in** (recommended once hosted) — restricts sign-in to one Google account:
+  1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an OAuth 2.0 Client ID of type "Web application".
+  2. Under "Authorized JavaScript origins", add your hosted URL (e.g. `https://your-app.onrender.com`).
+  3. Set `GOOGLE_CLIENT_ID` on the host to that client ID (it's a public value, safe to expose to the browser).
+  4. Optionally set `LUNO_ALLOWED_EMAIL` to the Google account allowed to sign in — defaults to `mikkiedutoit@gmail.com`.
+
+Both methods can be enabled together; sessions are in-memory and reset on restart/redeploy either way.

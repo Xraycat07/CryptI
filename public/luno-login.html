@@ -64,6 +64,9 @@
   .error { font-size: 12px; color: #ef5350; margin-top: 12px; min-height: 14px; }
   a.back { display: block; text-align: center; margin-top: 16px; font-size: 12px; color: var(--muted); text-decoration: none; }
   a.back:hover { color: var(--text); }
+  #googleBtn { display: flex; justify-content: center; margin-bottom: 14px; }
+  .divider { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); margin: 4px 0 16px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 </style>
 </head>
 <body>
@@ -72,6 +75,12 @@
   <div class="lock">🔒</div>
   <h1>Luno sign in</h1>
   <p class="sub">This section is protected. Sign in to continue.</p>
+
+  <div id="googleSection" style="display:none;">
+    <div id="googleBtn"></div>
+    <div class="divider" id="googleDivider">or</div>
+  </div>
+
   <form id="loginForm">
     <label for="user">Username</label>
     <input id="user" name="user" type="text" autocomplete="username" autofocus>
@@ -109,6 +118,52 @@ form.addEventListener("submit", async (evt) => {
     submitBtn.disabled = false;
   }
 });
+
+async function handleGoogleCredential(response) {
+  errorEl.textContent = "";
+  try {
+    const res = await fetch("/api/luno/google-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Google sign-in failed");
+    window.location.href = "/luno.html";
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+}
+
+(async function initAuth() {
+  try {
+    const res = await fetch("/api/luno/auth-config");
+    const config = await res.json();
+
+    if (!config.passwordAuthEnabled) {
+      form.style.display = "none";
+    }
+
+    if (config.googleClientId) {
+      document.getElementById("googleSection").style.display = "block";
+      if (!config.passwordAuthEnabled) document.getElementById("googleDivider").style.display = "none";
+
+      window.handleGoogleCredential = handleGoogleCredential;
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.onload = () => {
+        google.accounts.id.initialize({
+          client_id: config.googleClientId,
+          callback: handleGoogleCredential,
+        });
+        google.accounts.id.renderButton(document.getElementById("googleBtn"), { theme: "outline", size: "large" });
+      };
+      document.head.appendChild(script);
+    }
+  } catch {
+    // auth-config unreachable — password form (already in the DOM) still works.
+  }
+})();
 </script>
 
 </body>

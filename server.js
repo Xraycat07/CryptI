@@ -3,6 +3,7 @@ require("dotenv").config();
 const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
+const { OAuth2Client } = require("google-auth-library");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate, getForexRates, DEFAULT_FOREX_CURRENCIES } = require("./coingecko");
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
 const { getNews } = require("./news");
@@ -24,11 +25,22 @@ function timingSafeStringEqual(a, b) {
 // Session-cookie gate for the Luno tab (page + API), used instead of HTTP
 // Basic Auth because embedded webviews (e.g. VS Code's Simple Browser) don't
 // reliably show the native Basic Auth login popup. Off by default when
-// LUNO_APP_USER/LUNO_APP_PASSWORD aren't set, so the rest of the dashboard
+// neither auth method below is configured, so the rest of the dashboard
 // stays open. Sessions live in memory only — they reset on server restart.
 const SESSION_COOKIE = "luno_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const sessions = new Map(); // sessionId -> expiresAt
+
+// "Sign in with Google", meant for the hosted deployment (no shared
+// password to leak, and Google handles the actual credential check) —
+// GOOGLE_CLIENT_ID is a public value (safe in frontend JS), obtained by
+// registering an OAuth client at console.cloud.google.com/apis/credentials
+// with the hosted origin under "Authorized JavaScript origins". Local dev
+// can keep using LUNO_APP_USER/LUNO_APP_PASSWORD instead; both can be
+// enabled at once.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const ALLOWED_GOOGLE_EMAIL = process.env.LUNO_ALLOWED_EMAIL || "mikkiedutoit@gmail.com";
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -105,6 +117,40 @@ app.post("/api/luno/logout", (req, res) => {
   if (cookies[SESSION_COOKIE]) sessions.delete(cookies[SESSION_COOKIE]);
   res.clearCookie(SESSION_COOKIE, { path: "/" });
   res.json({ ok: true });
+});
+
+// Tells the login page which auth method(s) to render.
+app.get("/api/luno/auth-config", (req, res) => {
+  res.json({
+    googleClientId: GOOGLE_CLIENT_ID || null,
+    passwordAuthEnabled: Boolean(process.env.LUNO_APP_USER && process.env.LUNO_APP_PASSWORD),
+  });
+});
+
+app.post("/api/luno/google-login", async (req, res) => {
+  if (!googleClient) {
+    return res.status(500).json({ error: "Google sign-in is not configured on the server" });
+  }
+  try {
+    const { credential } = req.body || {};
+    if (!credential) return res.status(400).json({ error: "Missing credential" });
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    if (!payload.email_verified || !timingSafeStringEqual(payload.email, ALLOWED_GOOGLE_EMAIL)) {
+      return res.status(401).json({ error: "This Google account is not allowed to sign in" });
+    }
+    const id = createSession();
+    res.cookie(SESSION_COOKIE, id, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: req.secure,
+      maxAge: SESSION_TTL_MS,
+      path: "/",
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(401).json({ error: "Google sign-in failed: " + err.message });
+  }
 });
 
 app.use(["/luno.html", "/api/luno"], requireLunoSession);
