@@ -44,13 +44,15 @@ This is a stateful Node process (in-memory caching), so it needs a real host —
 
 ### Luno tab sign-in
 
-The Luno tab (page + `/api/luno/*`) is gated by a session cookie once either auth method below is configured; with neither set, it's open like the rest of the dashboard.
+The Luno tab (page + `/api/luno/*`) is gated by a session cookie once either auth method below is configured; with neither set, it's open like the rest of the dashboard. Sessions are in-memory and reset on restart/redeploy either way.
 
-- **Password** — set `LUNO_APP_USER` and `LUNO_APP_PASSWORD`.
-- **Google sign-in** (recommended once hosted) — restricts sign-in to one Google account:
+- **Password** — set `LUNO_APP_USER` and `LUNO_APP_PASSWORD`. This session always trades on the server's own Luno API keys (`LUNO_API_KEY_ID`/`LUNO_API_KEY_SECRET` below) — there's one such session, shared by anyone with the password.
+- **Google sign-in** (recommended once hosted) — open registration: anyone who signs in with Google gets their own account automatically, and adds their *own* Luno API key/secret afterward (from the dashboard's Account tab) to trade on their own Luno account. One person's keys/orders/bot proposals are never visible to another.
   1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an OAuth 2.0 Client ID of type "Web application".
   2. Under "Authorized JavaScript origins", add your hosted URL (e.g. `https://your-app.onrender.com`).
   3. Set `GOOGLE_CLIENT_ID` on the host to that client ID (it's a public value, safe to expose to the browser).
-  4. Optionally set `LUNO_ALLOWED_EMAIL` to the Google account allowed to sign in — defaults to `mikkiedutoit@gmail.com`.
+  4. Set `CREDENTIAL_ENCRYPTION_KEY` on the host to any secret string — used to encrypt each user's saved Luno API secret at rest (`data/users.json`). Required for the "save Luno keys" step to work; changing it later makes previously-saved keys unreadable (that user would need to re-enter them).
 
-Both methods can be enabled together; sessions are in-memory and reset on restart/redeploy either way.
+Both methods can be enabled together — password login is unaffected by any of the above and keeps working exactly as before.
+
+**Data persistence caveat**: registered users, their Luno keys, and bot proposals are stored as JSON files under `data/` (gitignored, same as the rest of the app's local storage). If your host's disk is ephemeral (no persistent volume attached — Render's default, for example), a redeploy wipes this data and everyone would need to sign in and re-add their keys. For anything beyond light personal/family use, attach a persistent disk or move this to a real database.

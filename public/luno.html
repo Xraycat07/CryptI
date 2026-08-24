@@ -253,6 +253,7 @@
   <button type="button" class="subtab-btn" data-tab="overview">Overview</button>
   <button type="button" class="subtab-btn" data-tab="trade" id="tradeTabBtn">Trade<span id="tradeTabBadge" class="luno-proposal-badge" style="display:none;"></span></button>
   <button type="button" class="subtab-btn" data-tab="history">History</button>
+  <button type="button" class="subtab-btn" data-tab="account" id="accountTabBtn">Account<span id="accountTabBadge" class="luno-proposal-badge" style="display:none;"></span></button>
 </div>
 
 <main>
@@ -411,6 +412,13 @@
         <span class="trend-sub">ZAR account ledger &middot; deposits, withdrawals, and every trade</span>
       </div>
       <div id="transactions"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" data-tab="account">
+    <div class="panel">
+      <h2>Account</h2>
+      <div id="accountInfo"><div class="empty">Loading…</div></div>
     </div>
   </div>
 </main>
@@ -2260,6 +2268,106 @@ document.getElementById("logout").addEventListener("click", async () => {
   window.location.href = "/luno.html";
 });
 
+// ---------- account (Google-registered users add their own Luno keys here) ----------
+async function loadAccountInfo() {
+  const el = document.getElementById("accountInfo");
+  try {
+    const res = await fetch("/api/luno/account");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderAccountInfo(body);
+    const badge = document.getElementById("accountTabBadge");
+    const needsKeys = body.kind === "user" && !body.hasLunoKeys;
+    badge.style.display = needsKeys ? "" : "none";
+    if (needsKeys) badge.textContent = "!";
+    return body;
+  } catch (err) {
+    el.innerHTML = `<div class="empty">Account info unavailable: ${err.message}</div>`;
+    return null;
+  }
+}
+
+function renderAccountInfo(account) {
+  const el = document.getElementById("accountInfo");
+  if (account.kind === "admin") {
+    el.innerHTML = `
+      <div class="row"><span>Signed in as</span><strong>Admin (password login)</strong></div>
+      <div class="trend-disclaimer">This session uses the server's configured Luno API credentials &mdash; no separate keys to add here.</div>
+    `;
+    return;
+  }
+
+  const keyRow = account.hasLunoKeys
+    ? `<div class="row"><span>Luno API key</span><strong>${account.keyIdMasked}</strong></div>`
+    : `<div class="empty">No Luno API keys saved yet &mdash; add yours below to see balances, place orders, and get bot proposals on your own Luno account.</div>`;
+
+  el.innerHTML = `
+    <div class="row"><span>Signed in as</span><strong>${account.email}</strong></div>
+    ${keyRow}
+    <div class="field-row" style="margin-top:12px;">
+      <div class="field">
+        <label for="acctKeyId">Luno API Key ID</label>
+        <input id="acctKeyId" type="text" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="acctKeySecret">Luno API Key Secret</label>
+        <input id="acctKeySecret" type="password" autocomplete="off">
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button type="button" id="saveLunoKeysBtn">${account.hasLunoKeys ? "Update keys" : "Save keys"}</button>
+      ${account.hasLunoKeys ? '<button type="button" id="removeLunoKeysBtn" class="secondary-btn">Remove keys</button>' : ""}
+    </div>
+    <div class="order-msg" id="acctKeysMsg"></div>
+    <div class="trend-disclaimer">Create a key at luno.com/wallet/security/api_keys with balance/orders permissions (not withdrawal). Your secret is encrypted before being stored and is never shown again after saving.</div>
+  `;
+
+  document.getElementById("saveLunoKeysBtn").addEventListener("click", async () => {
+    const msg = document.getElementById("acctKeysMsg");
+    const keyId = document.getElementById("acctKeyId").value.trim();
+    const secret = document.getElementById("acctKeySecret").value.trim();
+    if (!keyId || !secret) {
+      msg.textContent = "Enter both the Key ID and Secret.";
+      msg.className = "order-msg error";
+      return;
+    }
+    msg.textContent = "Verifying and saving…";
+    msg.className = "order-msg";
+    try {
+      const res = await fetch("/api/luno/account/luno-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyId, secret }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      await loadAccountInfo();
+      loadAll();
+    } catch (err) {
+      msg.textContent = "Error: " + err.message;
+      msg.className = "order-msg error";
+    }
+  });
+
+  const removeBtn = document.getElementById("removeLunoKeysBtn");
+  if (removeBtn) {
+    removeBtn.addEventListener("click", async () => {
+      if (!window.confirm("Remove your saved Luno API keys?")) return;
+      const msg = document.getElementById("acctKeysMsg");
+      try {
+        const res = await fetch("/api/luno/account/luno-keys", { method: "DELETE" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.statusText);
+        await loadAccountInfo();
+        loadAll();
+      } catch (err) {
+        msg.textContent = "Error: " + err.message;
+        msg.className = "order-msg error";
+      }
+    });
+  }
+}
+
 // ---------- sub-tabs ----------
 const SUBTAB_STORAGE_KEY = "cryptoApiLunoTab";
 function setActiveTab(tab) {
@@ -2274,6 +2382,11 @@ setActiveTab(localStorage.getItem(SUBTAB_STORAGE_KEY) || "overview");
 
 refreshBtn.addEventListener("click", loadAll);
 loadAll();
+// New Google-registered users with no keys saved yet land directly on the
+// Account tab instead of a wall of "add your Luno API keys" errors.
+loadAccountInfo().then((account) => {
+  if (account && account.kind === "user" && !account.hasLunoKeys) setActiveTab("account");
+});
 </script>
 
 </body>

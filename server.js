@@ -9,8 +9,9 @@ const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, ge
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
-const { startBotLoop, checkOnce: runBotCheckOnce, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus } = require("./luno-bot");
+const { startBotLoop, checkOnceFor: runBotCheckOnceFor, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID } = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
+const { findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,7 +30,11 @@ function timingSafeStringEqual(a, b) {
 // stays open. Sessions live in memory only — they reset on server restart.
 const SESSION_COOKIE = "luno_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const sessions = new Map(); // sessionId -> expiresAt
+// sessionId -> { expiresAt, kind: "admin" | "user", userId? }. "admin"
+// sessions (password login) use the server's own env-var Luno credentials,
+// unchanged from before. "user" sessions (Google sign-in) are a
+// registered account with its own Luno API keys — see users.js.
+const sessions = new Map();
 
 // "Sign in with Google", meant for the hosted deployment (no shared
 // password to leak, and Google handles the actual credential check) —
@@ -37,9 +42,11 @@ const sessions = new Map(); // sessionId -> expiresAt
 // registering an OAuth client at console.cloud.google.com/apis/credentials
 // with the hosted origin under "Authorized JavaScript origins". Local dev
 // can keep using LUNO_APP_USER/LUNO_APP_PASSWORD instead; both can be
-// enabled at once.
+// enabled at once. Registration is open — anyone who signs in with Google
+// gets their own account, and can only ever trade on their own Luno
+// account (their own API keys), so there's no shared-credential risk in
+// leaving this unrestricted.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const ALLOWED_GOOGLE_EMAIL = process.env.LUNO_ALLOWED_EMAIL || "mikkiedutoit@gmail.com";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 function parseCookies(req) {
@@ -54,21 +61,31 @@ function parseCookies(req) {
   return cookies;
 }
 
-function createSession() {
+function createSession(kind, userId) {
   const id = crypto.randomBytes(32).toString("hex");
-  sessions.set(id, Date.now() + SESSION_TTL_MS);
+  sessions.set(id, { expiresAt: Date.now() + SESSION_TTL_MS, kind, userId });
   return id;
 }
 
-function isValidSession(id) {
-  if (!id) return false;
-  const expires = sessions.get(id);
-  if (!expires) return false;
-  if (Date.now() > expires) {
+function getSession(id) {
+  if (!id) return null;
+  const session = sessions.get(id);
+  if (!session) return null;
+  if (Date.now() > session.expiresAt) {
     sessions.delete(id);
-    return false;
+    return null;
   }
-  return true;
+  return session;
+}
+
+function setSessionCookie(req, res, id) {
+  res.cookie(SESSION_COOKIE, id, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.secure,
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  });
 }
 
 function requireLunoSession(req, res, next) {
@@ -76,12 +93,45 @@ function requireLunoSession(req, res, next) {
   if (!passwordAuthEnabled && !GOOGLE_CLIENT_ID) return next();
 
   const cookies = parseCookies(req);
-  if (isValidSession(cookies[SESSION_COOKIE])) return next();
+  const session = getSession(cookies[SESSION_COOKIE]);
+  if (session) {
+    req.lunoAuth = { kind: session.kind, userId: session.userId };
+    return next();
+  }
 
   if (req.originalUrl === "/luno.html") {
     return res.sendFile(path.join(__dirname, "public", "luno-login.html"));
   }
   res.status(401).json({ error: "Not authenticated" });
+}
+
+// Resolves { keyId, secret } for the current session, or null if a
+// registered user hasn't saved their own Luno keys yet. Admin (password)
+// sessions return undefined, meaning "use the server's env credentials" —
+// luno.js's functions already default to that when no credentials are passed.
+async function resolveLunoCredentials(req) {
+  if (!req.lunoAuth || req.lunoAuth.kind === "admin") return undefined;
+  return getUserCredentials(req.lunoAuth.userId);
+}
+
+function botIdentityId(req) {
+  return !req.lunoAuth || req.lunoAuth.kind === "admin" ? BOT_ADMIN_ID : req.lunoAuth.userId;
+}
+
+// Resolves this session's Luno credentials onto req.lunoCredentials for the
+// account-specific routes below. A registered user with no saved keys gets
+// a clear 400 instead of the route ever calling Luno.
+async function withLunoCredentials(req, res, next) {
+  try {
+    const credentials = await resolveLunoCredentials(req);
+    if (credentials === null) {
+      return res.status(400).json({ error: "Add your Luno API keys first (see the Account tab)." });
+    }
+    req.lunoCredentials = credentials;
+    next();
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
 }
 
 app.use(express.json());
@@ -100,14 +150,7 @@ app.post("/api/luno/login", (req, res) => {
   ) {
     return res.status(401).json({ error: "Invalid username or password" });
   }
-  const id = createSession();
-  res.cookie(SESSION_COOKIE, id, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: req.secure,
-    maxAge: SESSION_TTL_MS,
-    path: "/",
-  });
+  setSessionCookie(req, res, createSession("admin"));
   res.json({ ok: true });
 });
 
@@ -126,6 +169,9 @@ app.get("/api/luno/auth-config", (req, res) => {
   });
 });
 
+// Open registration: any verified Google account gets an account (created
+// on first sign-in) that trades on its own Luno API keys, added afterward
+// from the Account tab — never the server's shared credentials.
 app.post("/api/luno/google-login", async (req, res) => {
   if (!googleClient) {
     return res.status(500).json({ error: "Google sign-in is not configured on the server" });
@@ -135,17 +181,11 @@ app.post("/api/luno/google-login", async (req, res) => {
     if (!credential) return res.status(400).json({ error: "Missing credential" });
     const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
-    if (!payload.email_verified || !timingSafeStringEqual(payload.email, ALLOWED_GOOGLE_EMAIL)) {
-      return res.status(401).json({ error: "This Google account is not allowed to sign in" });
+    if (!payload.email_verified) {
+      return res.status(401).json({ error: "Google account email is not verified" });
     }
-    const id = createSession();
-    res.cookie(SESSION_COOKIE, id, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: req.secure,
-      maxAge: SESSION_TTL_MS,
-      path: "/",
-    });
+    const user = await findOrCreateUser(payload.email);
+    setSessionCookie(req, res, createSession("user", user.id));
     res.json({ ok: true });
   } catch (err) {
     res.status(401).json({ error: "Google sign-in failed: " + err.message });
@@ -294,10 +334,56 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
-// Wallet balances for the connected Luno account
-app.get("/api/luno/balance", async (req, res) => {
+// Current session's identity + whether it has Luno keys saved. Admin
+// (password-login) sessions always report keys as configured, since they
+// use the server's own env credentials rather than a saved key.
+app.get("/api/luno/account", async (req, res) => {
+  if (req.lunoAuth.kind === "admin") {
+    return res.json({ kind: "admin", email: null, hasLunoKeys: true, keyIdMasked: null });
+  }
+  const user = await getUserById(req.lunoAuth.userId);
+  const keyId = user?.luno?.keyId || null;
+  res.json({
+    kind: "user",
+    email: user?.email || null,
+    hasLunoKeys: Boolean(user?.luno),
+    keyIdMasked: keyId ? `${keyId.slice(0, 4)}${"*".repeat(Math.max(0, keyId.length - 4))}` : null,
+  });
+});
+
+app.post("/api/luno/account/luno-keys", async (req, res) => {
+  if (req.lunoAuth.kind === "admin") {
+    return res.status(400).json({ error: "This session uses the server's configured Luno credentials." });
+  }
   try {
-    const balance = await getBalances();
+    const { keyId, secret } = req.body || {};
+    if (!keyId || !secret) return res.status(400).json({ error: "keyId and secret are required" });
+    // Verify the keys actually work before saving, so a typo is caught now
+    // instead of surfacing later as a confusing failure.
+    await getBalances({ keyId, secret });
+    await setUserLunoKeys(req.lunoAuth.userId, { keyId, secret });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.delete("/api/luno/account/luno-keys", async (req, res) => {
+  if (req.lunoAuth.kind === "admin") {
+    return res.status(400).json({ error: "This session uses the server's configured Luno credentials." });
+  }
+  try {
+    await clearUserLunoKeys(req.lunoAuth.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Wallet balances for the connected Luno account
+app.get("/api/luno/balance", withLunoCredentials, async (req, res) => {
+  try {
+    const balance = await getBalances(req.lunoCredentials);
     res.json({ balance });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -305,9 +391,9 @@ app.get("/api/luno/balance", async (req, res) => {
 });
 
 // Currently open (pending) orders on the connected Luno account
-app.get("/api/luno/orders", async (req, res) => {
+app.get("/api/luno/orders", withLunoCredentials, async (req, res) => {
   try {
-    const orders = await getOpenOrders();
+    const orders = await getOpenOrders(req.lunoCredentials);
     res.json({ orders });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -351,13 +437,15 @@ app.get("/api/luno/history/:asset", async (req, res) => {
 
 // Place a real Luno order (limit by default, or market with orderType: "market").
 // Moves real money, so the caller must explicitly pass confirm: true.
-app.post("/api/luno/orders", async (req, res) => {
+app.post("/api/luno/orders", withLunoCredentials, async (req, res) => {
   try {
     const { confirm, orderType, ...params } = req.body || {};
     if (!confirm) {
       return res.status(400).json({ error: "Set confirm: true in the request body to place a real order." });
     }
-    const result = orderType === "market" ? await placeMarketOrder(params) : await placeLimitOrder(params);
+    const result = orderType === "market"
+      ? await placeMarketOrder(params, req.lunoCredentials)
+      : await placeLimitOrder(params, req.lunoCredentials);
     res.json(result);
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -365,9 +453,9 @@ app.post("/api/luno/orders", async (req, res) => {
 });
 
 // Maker/taker fee rates for a pair, used to estimate cost before confirming an order.
-app.get("/api/luno/fees/:pair", async (req, res) => {
+app.get("/api/luno/fees/:pair", withLunoCredentials, async (req, res) => {
   try {
-    const fees = await getFeeInfo(req.params.pair.toUpperCase());
+    const fees = await getFeeInfo(req.params.pair.toUpperCase(), req.lunoCredentials);
     res.json(fees);
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -376,10 +464,10 @@ app.get("/api/luno/fees/:pair", async (req, res) => {
 
 // Ledger of deposits/withdrawals/trades on the ZAR account — covers every
 // buy/sell across all pairs since each trade has a ZAR leg.
-app.get("/api/luno/transactions", async (req, res) => {
+app.get("/api/luno/transactions", withLunoCredentials, async (req, res) => {
   try {
     const count = Math.min(200, Math.max(1, parseInt(req.query.count, 10) || 50));
-    const transactions = await getAccountTransactions({ count });
+    const transactions = await getAccountTransactions({ count }, req.lunoCredentials);
     res.json({ transactions });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -387,21 +475,25 @@ app.get("/api/luno/transactions", async (req, res) => {
 });
 
 // The bot's queued buy/sell proposals — it only ever suggests, never trades
-// on its own; accepting one still requires an explicit Confirm click.
+// on its own; accepting one still requires an explicit Confirm click. Each
+// account (admin, or a registered user) only ever sees its own proposals.
 app.get("/api/luno/bot/proposals", async (req, res) => {
   try {
-    const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
+    const identityId = botIdentityId(req);
+    const [proposals, state] = await Promise.all([getBotProposals(identityId), getBotState(identityId)]);
     res.json({ proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
 });
 
-// Runs a check immediately instead of waiting for the daily interval.
-app.post("/api/luno/bot/check-now", async (req, res) => {
+// Runs a check immediately instead of waiting for the hourly interval —
+// scoped to just the requesting session's own account.
+app.post("/api/luno/bot/check-now", withLunoCredentials, async (req, res) => {
   try {
-    const added = await runBotCheckOnce();
-    const [proposals, state] = await Promise.all([getBotProposals(), getBotState()]);
+    const identityId = botIdentityId(req);
+    const added = await runBotCheckOnceFor(identityId, req.lunoCredentials);
+    const [proposals, state] = await Promise.all([getBotProposals(identityId), getBotState(identityId)]);
     res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -410,7 +502,7 @@ app.post("/api/luno/bot/check-now", async (req, res) => {
 
 app.post("/api/luno/bot/proposals/:id/accept", async (req, res) => {
   try {
-    const proposal = await setBotProposalStatus(req.params.id, "accepted");
+    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.id, "accepted");
     res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -419,7 +511,7 @@ app.post("/api/luno/bot/proposals/:id/accept", async (req, res) => {
 
 app.post("/api/luno/bot/proposals/:id/dismiss", async (req, res) => {
   try {
-    const proposal = await setBotProposalStatus(req.params.id, "dismissed");
+    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.id, "dismissed");
     res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -427,9 +519,9 @@ app.post("/api/luno/bot/proposals/:id/dismiss", async (req, res) => {
 });
 
 // Cancel an open Luno order
-app.post("/api/luno/orders/:orderId/cancel", async (req, res) => {
+app.post("/api/luno/orders/:orderId/cancel", withLunoCredentials, async (req, res) => {
   try {
-    const result = await cancelOrder(req.params.orderId);
+    const result = await cancelOrder(req.params.orderId, req.lunoCredentials);
     res.json(result);
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });

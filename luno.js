@@ -1,9 +1,13 @@
 const BASE_URL = "https://api.luno.com";
 
-// Primary credentials, with an optional secondary key (LUNO_API_KEY_ID2 /
-// LUNO_API_KEY_SECRET2) used as a failover if the primary is rejected
-// (e.g. revoked, or blocked by an IP allowlist mismatch).
-const CREDENTIAL_SETS = [
+// The server's own credentials, with an optional secondary key
+// (LUNO_API_KEY_ID2 / LUNO_API_KEY_SECRET2) used as a failover if the
+// primary is rejected (e.g. revoked, or blocked by an IP allowlist
+// mismatch). Used for the admin/password-login session and for shared,
+// account-agnostic calls (candle history, the background history archiver)
+// — registered users bring their own single key/secret instead (see
+// users.js), passed explicitly as `credentials` to the functions below.
+const ADMIN_CREDENTIAL_SETS = [
   { keyId: () => process.env.LUNO_API_KEY_ID, secret: () => process.env.LUNO_API_KEY_SECRET },
   { keyId: () => process.env.LUNO_API_KEY_ID2, secret: () => process.env.LUNO_API_KEY_SECRET2 },
 ];
@@ -35,13 +39,20 @@ async function lunoRequestOnce(auth, method, path, params) {
   return data;
 }
 
-async function lunoRequest(method, path, params = {}) {
-  const configured = CREDENTIAL_SETS
-    .map((set) => ({ keyId: set.keyId(), secret: set.secret() }))
-    .filter((c) => c.keyId && c.secret);
+// `credentials` is a single { keyId, secret } (a registered user's own
+// key). Omit it to use the server's admin credentials (with failover)
+// instead — the default for shared/account-agnostic calls.
+async function lunoRequest(method, path, params = {}, credentials) {
+  const configured = credentials
+    ? [credentials].filter((c) => c.keyId && c.secret)
+    : ADMIN_CREDENTIAL_SETS.map((set) => ({ keyId: set.keyId(), secret: set.secret() })).filter((c) => c.keyId && c.secret);
 
   if (!configured.length) {
-    const err = new Error("Luno API credentials not configured (set LUNO_API_KEY_ID and LUNO_API_KEY_SECRET)");
+    const err = new Error(
+      credentials
+        ? "Luno API credentials are missing keyId/secret"
+        : "Luno API credentials not configured (set LUNO_API_KEY_ID and LUNO_API_KEY_SECRET)"
+    );
     err.status = 500;
     throw err;
   }
@@ -59,18 +70,18 @@ async function lunoRequest(method, path, params = {}) {
 }
 
 // Limit order: type is "BID" (buy) or "ASK" (sell).
-async function placeLimitOrder({ pair, type, volume, price }) {
+async function placeLimitOrder({ pair, type, volume, price }, credentials) {
   if (!pair || !type || !volume || !price) {
     const err = new Error("pair, type (BID/ASK), volume, and price are required");
     err.status = 400;
     throw err;
   }
-  return lunoRequest("POST", "/api/1/postorder", { pair, type, volume, price });
+  return lunoRequest("POST", "/api/1/postorder", { pair, type, volume, price }, credentials);
 }
 
 // Market order: type is "BUY" or "SELL". Luno expects counter_volume for BUY
 // (amount of quote currency to spend) and base_volume for SELL (amount to sell).
-async function placeMarketOrder({ pair, type, volume }) {
+async function placeMarketOrder({ pair, type, volume }, credentials) {
   if (!pair || !type || !volume) {
     const err = new Error("pair, type (BUY/SELL), and volume are required");
     err.status = 400;
@@ -84,16 +95,16 @@ async function placeMarketOrder({ pair, type, volume }) {
     err.status = 400;
     throw err;
   }
-  return lunoRequest("POST", "/api/1/marketorder", params);
+  return lunoRequest("POST", "/api/1/marketorder", params, credentials);
 }
 
-async function getBalances() {
-  const data = await lunoRequest("GET", "/api/1/balance");
+async function getBalances(credentials) {
+  const data = await lunoRequest("GET", "/api/1/balance", {}, credentials);
   return data.balance || [];
 }
 
-async function getOpenOrders() {
-  const data = await lunoRequest("GET", "/api/1/listorders", { state: "PENDING" });
+async function getOpenOrders(credentials) {
+  const data = await lunoRequest("GET", "/api/1/listorders", { state: "PENDING" }, credentials);
   return data.orders || [];
 }
 
@@ -124,12 +135,16 @@ async function getMarketInfo() {
   return data.markets || [];
 }
 
-// Daily candles for a pair, requires auth (unlike the ticker endpoint).
-// Returns chronological ascending candles. Luno caps a single response at
-// ~1000 candles counting forward from `since` — so for a `since` more than
-// 1000 days back, this returns the *oldest* 1000 days from that point, not
-// the most recent ones. Callers wanting deep history must page forward
-// (see luno-history.js's fetchDeepHistory), not just request more days.
+// Daily candles for a pair, requires auth (unlike the ticker endpoint) but
+// the data itself is public/account-agnostic — every caller (the shared
+// history archiver, every registered user's bot check) uses the server's
+// admin credentials rather than each needing their own working key just to
+// read public price data. Returns chronological ascending candles. Luno
+// caps a single response at ~1000 candles counting forward from `since` —
+// so for a `since` more than 1000 days back, this returns the *oldest*
+// 1000 days from that point, not the most recent ones. Callers wanting
+// deep history must page forward (see luno-history.js's fetchDeepHistory),
+// not just request more days.
 async function getCandleHistory(pair, { days = 30, since } = {}) {
   const sinceMs = since != null ? since : Date.now() - days * 86400 * 1000;
   const data = await lunoRequest("GET", "/api/exchange/1/candles", { pair, since: sinceMs, duration: 86400 });
@@ -143,33 +158,36 @@ async function getCandleHistory(pair, { days = 30, since } = {}) {
   }));
 }
 
-// Maker/taker fee rates and 30-day trading volume for a pair.
-async function getFeeInfo(pair) {
-  return lunoRequest("GET", "/api/1/fee_info", { pair });
+// Maker/taker fee rates and 30-day trading volume for a pair — account-
+// specific (based on that account's own trading tier).
+async function getFeeInfo(pair, credentials) {
+  return lunoRequest("GET", "/api/1/fee_info", { pair }, credentials);
 }
 
 // Ledger entries (deposits, withdrawals, trades, fees) for the ZAR account.
 // Every trade has a ZAR leg, so this one account's ledger captures buy/sell
 // activity across all pairs, not just ZAR itself. Luno's row range is
 // negative-indexed from most recent, and rows come back newest-first.
-async function getAccountTransactions({ count = 50 } = {}) {
-  const balances = await getBalances();
+async function getAccountTransactions({ count = 50 } = {}, credentials) {
+  const balances = await getBalances(credentials);
   const zarAccount = balances.find((b) => b.asset === "ZAR");
   if (!zarAccount) return [];
-  const data = await lunoRequest("GET", `/api/1/accounts/${zarAccount.account_id}/transactions`, {
-    min_row: -count,
-    max_row: 0,
-  });
+  const data = await lunoRequest(
+    "GET",
+    `/api/1/accounts/${zarAccount.account_id}/transactions`,
+    { min_row: -count, max_row: 0 },
+    credentials
+  );
   return data.transactions || [];
 }
 
-async function cancelOrder(orderId) {
+async function cancelOrder(orderId, credentials) {
   if (!orderId) {
     const err = new Error("orderId is required");
     err.status = 400;
     throw err;
   }
-  return lunoRequest("POST", "/api/1/stoporder", { order_id: orderId });
+  return lunoRequest("POST", "/api/1/stoporder", { order_id: orderId }, credentials);
 }
 
 module.exports = { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getCandleHistory, getAccountTransactions, getFeeInfo };
