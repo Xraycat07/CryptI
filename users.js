@@ -51,12 +51,16 @@ async function getUsers() {
   return loadUsers();
 }
 
+// Called on every successful Google sign-in, so lastLoginAt tracks actual
+// login activity (not just account creation) — see the admin user list.
 async function findOrCreateUser(email) {
   const users = await loadUsers();
   let user = users.find((u) => u.email === email);
-  if (user) return user;
-  user = { id: `u_${crypto.randomBytes(8).toString("hex")}`, email, createdAt: Date.now(), luno: null };
-  users.push(user);
+  if (!user) {
+    user = { id: `u_${crypto.randomBytes(8).toString("hex")}`, email, createdAt: Date.now(), lastLoginAt: null, luno: null };
+    users.push(user);
+  }
+  user.lastLoginAt = Date.now();
   await saveUsers(users);
   return user;
 }

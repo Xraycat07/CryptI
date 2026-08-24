@@ -420,6 +420,13 @@
       <h2>Account</h2>
       <div id="accountInfo"><div class="empty">Loading…</div></div>
     </div>
+    <div class="panel" id="adminUsersPanel" hidden>
+      <div class="trend-head">
+        <h2>Registered users</h2>
+        <span class="trend-sub">Google sign-ins &mdash; who's registered and when they last logged in</span>
+      </div>
+      <div id="adminUsers"><div class="empty">Loading…</div></div>
+    </div>
   </div>
 </main>
 
@@ -2294,6 +2301,8 @@ function renderAccountInfo(account) {
       <div class="row"><span>Signed in as</span><strong>Admin (password login)</strong></div>
       <div class="trend-disclaimer">This session uses the server's configured Luno API credentials &mdash; no separate keys to add here.</div>
     `;
+    document.getElementById("adminUsersPanel").hidden = false;
+    loadAdminUsers();
     return;
   }
 
@@ -2366,6 +2375,42 @@ function renderAccountInfo(account) {
       }
     });
   }
+}
+
+async function loadAdminUsers() {
+  const el = document.getElementById("adminUsers");
+  try {
+    const res = await fetch("/api/luno/admin/users");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderAdminUsers(body.users || []);
+  } catch (err) {
+    el.innerHTML = `<div class="empty">Unavailable: ${err.message}</div>`;
+  }
+}
+
+function renderAdminUsers(users) {
+  const el = document.getElementById("adminUsers");
+  if (!users.length) {
+    el.innerHTML = '<div class="empty">No one has signed in with Google yet.</div>';
+    return;
+  }
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead><tr><th>Email</th><th>Registered</th><th>Last login</th><th>Luno keys</th></tr></thead>
+    <tbody>
+      ${users.map((u) => `
+        <tr>
+          <td>${u.email}</td>
+          <td>${new Date(u.createdAt).toLocaleString()}</td>
+          <td>${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
+          <td>${u.hasLunoKeys ? "Saved" : "Not added"}</td>
+        </tr>
+      `).join("")}
+    </tbody>
+  `;
+  el.innerHTML = "";
+  el.appendChild(table);
 }
 
 // ---------- sub-tabs ----------

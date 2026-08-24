@@ -19,7 +19,7 @@ const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrde
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
 const { startBotLoop, checkOnceFor: runBotCheckOnceFor, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID } = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
-const { findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
+const { getUsers, findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -424,6 +424,26 @@ app.post("/api/luno/account/luno-keys", async (req, res) => {
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
+});
+
+// Registered Google-sign-in accounts — who's registered, when, whether
+// they've saved Luno keys yet. Admin (password login) only; a registered
+// user has no reason to see other people's emails.
+app.get("/api/luno/admin/users", async (req, res) => {
+  if (req.lunoAuth.kind !== "admin") {
+    return res.status(403).json({ error: "Admin only" });
+  }
+  const users = await getUsers();
+  res.json({
+    users: users
+      .map((u) => ({
+        email: u.email,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt ?? null,
+        hasLunoKeys: Boolean(u.luno),
+      }))
+      .sort((a, b) => (b.lastLoginAt ?? b.createdAt) - (a.lastLoginAt ?? a.createdAt)),
+  });
 });
 
 app.delete("/api/luno/account/luno-keys", async (req, res) => {
