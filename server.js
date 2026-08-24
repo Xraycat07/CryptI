@@ -39,9 +39,10 @@ function timingSafeStringEqual(a, b) {
 const SESSION_COOKIE = "luno_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // sessionId -> { expiresAt, kind: "admin" | "user", userId? }. "admin"
-// sessions (password login) use the server's own env-var Luno credentials,
-// unchanged from before. "user" sessions (Google sign-in) are a
-// registered account with its own Luno API keys — see users.js.
+// sessions (password login, or Google sign-in as OWNER_EMAIL below) use
+// the server's own env-var Luno credentials, unchanged from before. "user"
+// sessions (any other Google sign-in) are a registered account with its
+// own Luno API keys — see users.js.
 const sessions = new Map();
 
 // "Sign in with Google", meant for the hosted deployment (no shared
@@ -56,6 +57,12 @@ const sessions = new Map();
 // leaving this unrestricted.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// The app owner's own Google account signs in as "admin" too, instead of
+// getting a separate registered "user" identity that would need its own
+// Luno keys added — their Luno credentials are already the server's env
+// ones (LUNO_API_KEY_ID/SECRET), same as the password-login session.
+const OWNER_EMAIL = (process.env.LUNO_OWNER_EMAIL || "mikkiedutoit@gmail.com").toLowerCase();
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -191,6 +198,10 @@ app.post("/api/luno/google-login", async (req, res) => {
     const payload = ticket.getPayload();
     if (!payload.email_verified) {
       return res.status(401).json({ error: "Google account email is not verified" });
+    }
+    if (payload.email.toLowerCase() === OWNER_EMAIL) {
+      setSessionCookie(req, res, createSession("admin"));
+      return res.json({ ok: true });
     }
     const user = await findOrCreateUser(payload.email);
     setSessionCookie(req, res, createSession("user", user.id));
