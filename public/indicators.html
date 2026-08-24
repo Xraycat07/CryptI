@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/strategy.js"></script>
 <script src="/fx.js"></script>
+<script src="/asset-class.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -246,21 +247,15 @@
     <a href="/news.html">News</a>
   </nav>
   <a href="/luno.html" class="luno-link">🔒 Luno</a>
-  <label>Coin
-    <select id="coin">
-      <option value="bitcoin">BTC</option>
-      <option value="ethereum">ETH</option>
-      <option value="ripple" selected>XRP</option>
-      <option value="litecoin">LTC</option>
-      <option value="dogecoin">DOGE</option>
-      <option value="solana">SOL</option>
-      <option value="cardano">ADA</option>
-      <option value="polkadot">DOT</option>
-      <option value="chainlink">LINK</option>
-      <option value="avalanche-2">AVAX</option>
-      <option value="polygon-ecosystem-token">POL</option>
-      <option value="uniswap">UNI</option>
+  <label>Market
+    <select id="assetClass">
+      <option value="crypto">Crypto</option>
+      <option value="stocks">Stocks</option>
+      <option value="forex">Forex</option>
     </select>
+  </label>
+  <label>Coin
+    <select id="coin"></select>
   </label>
   <label>Interval
     <select id="interval">
@@ -429,6 +424,20 @@
 <script>
 const API_BASE = "";
 const { ema, rsi, macd } = Strategy;
+
+const CRYPTO_COINS = [
+  { id: "bitcoin", label: "BTC" }, { id: "ethereum", label: "ETH" }, { id: "ripple", label: "XRP" },
+  { id: "litecoin", label: "LTC" }, { id: "dogecoin", label: "DOGE" }, { id: "solana", label: "SOL" },
+  { id: "cardano", label: "ADA" }, { id: "polkadot", label: "DOT" }, { id: "chainlink", label: "LINK" },
+  { id: "avalanche-2", label: "AVAX" }, { id: "polygon-ecosystem-token", label: "POL" }, { id: "uniswap", label: "UNI" },
+];
+const assetClass = AssetClass.getAssetClass();
+const COINS = AssetClass.coinsFor(assetClass, CRYPTO_COINS);
+const DEFAULT_COIN_ID = assetClass === "crypto" ? "ripple" : COINS[0].id;
+document.getElementById("coin").innerHTML = COINS
+  .map((c) => `<option value="${c.id}"${c.id === DEFAULT_COIN_ID ? " selected" : ""}>${c.label}</option>`)
+  .join("");
+AssetClass.bindAssetClassSelect(document.getElementById("assetClass"));
 
 function toLineData(times, values) {
   return times
@@ -817,7 +826,8 @@ async function loadIndicators() {
   setStatus("Loading…");
 
   try {
-    const res = await fetch(`${API_BASE}/api/candles/${coin}?interval=${interval}&limit=${limit}`);
+    const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
+    const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coin, params)}`);
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
 
@@ -840,12 +850,20 @@ let autoTimer = null;
 const intervalSelectEl = document.getElementById("interval");
 const coinSelectEl = document.getElementById("coin");
 
+// Stocks/forex are daily-only (see yahoo.js/forex.js) — the interval
+// picker's granularities (1m..2Y) are a crypto/Coinbase-specific concept.
+if (assetClass !== "crypto") {
+  intervalSelectEl.disabled = true;
+  intervalSelectEl.title = "Daily only for Stocks/Forex";
+}
+
 // Disables intervals this coin doesn't have enough stored history for
 // (e.g. 2Y on a recently-listed coin), falling back to the largest
 // available one if the current selection just became invalid.
 async function updateIntervalAvailability(coin) {
+  if (assetClass !== "crypto") return;
   try {
-    const res = await fetch(`${API_BASE}/api/coins/${coin}/history-info`);
+    const res = await fetch(`${API_BASE}${AssetClass.historyInfoUrl(assetClass, coin)}`);
     const info = await res.json();
     if (res.ok) Strategy.applyIntervalAvailability(intervalSelectEl, info.storedDays);
   } catch {

@@ -178,6 +178,13 @@
     <a href="/news.html">News</a>
   </nav>
   <a href="/luno.html" class="luno-link">🔒 Luno</a>
+  <label>Market
+    <select id="assetClass">
+      <option value="crypto">Crypto</option>
+      <option value="stocks">Stocks</option>
+      <option value="forex">Forex</option>
+    </select>
+  </label>
   <label>Interval
     <select id="interval">
       <option value="1h">1h</option>
@@ -217,9 +224,10 @@
 </main>
 
 <script src="/strategy.js"></script>
+<script src="/asset-class.js"></script>
 <script>
 const API_BASE = "";
-const COINS = [
+const CRYPTO_COINS = [
   { id: "bitcoin",  label: "BTC" },
   { id: "ethereum", label: "ETH" },
   { id: "ripple",   label: "XRP" },
@@ -233,6 +241,14 @@ const COINS = [
   { id: "polygon-ecosystem-token", label: "POL" },
   { id: "uniswap",  label: "UNI" },
 ];
+const assetClass = AssetClass.getAssetClass();
+const COINS = AssetClass.coinsFor(assetClass, CRYPTO_COINS);
+AssetClass.bindAssetClassSelect(document.getElementById("assetClass"));
+if (assetClass !== "crypto") {
+  const intervalSelect = document.getElementById("interval");
+  intervalSelect.disabled = true;
+  intervalSelect.title = "Daily only for Stocks/Forex";
+}
 
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh");
@@ -247,7 +263,8 @@ function fmtPct(p) {
 }
 
 async function fetchCandles(coinId, interval, limit) {
-  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=${interval}&limit=${limit}`);
+  const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
+  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, params)}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;

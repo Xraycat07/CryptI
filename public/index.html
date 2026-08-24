@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/strategy.js"></script>
 <script src="/fx.js"></script>
+<script src="/asset-class.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -174,6 +175,13 @@
     <a href="/news.html">News</a>
   </nav>
   <a href="/luno.html" class="luno-link">🔒 Luno</a>
+  <label>Market
+    <select id="assetClass">
+      <option value="crypto">Crypto</option>
+      <option value="stocks">Stocks</option>
+      <option value="forex">Forex</option>
+    </select>
+  </label>
   <label>Interval
     <select id="interval">
       <option value="1m">1m</option>
@@ -224,7 +232,7 @@
 
 <script>
 const API_BASE = "";
-const COINS = [
+const CRYPTO_COINS = [
   { id: "bitcoin",  label: "BTC",  color: "#f7931a" },
   { id: "ethereum", label: "ETH",  color: "#8a92b2" },
   { id: "ripple",   label: "XRP",  color: "#4f8cff" },
@@ -238,6 +246,16 @@ const COINS = [
   { id: "polygon-ecosystem-token", label: "POL", color: "#b45309" },
   { id: "uniswap",  label: "UNI",  color: "#84cc16" },
 ];
+const assetClass = AssetClass.getAssetClass();
+const COINS = AssetClass.coinsFor(assetClass, CRYPTO_COINS);
+
+// Stocks/forex are daily-only (see yahoo.js/forex.js) — the interval picker
+// only applies to crypto's live Coinbase-backed granularities.
+const intervalSelect = document.getElementById("interval");
+if (assetClass !== "crypto") {
+  intervalSelect.disabled = true;
+  intervalSelect.title = "Daily only for Stocks/Forex";
+}
 
 const chartTheme = {
   layout: { background: { color: "#0e1117" }, textColor: "#8b93a1" },
@@ -329,7 +347,8 @@ function resizeAll() {
 window.addEventListener("resize", resizeAll);
 
 async function fetchCandles(coinId, interval, limit) {
-  const res = await fetch(`${API_BASE}/api/candles/${coinId}?interval=${interval}&limit=${limit}`);
+  const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
+  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, params)}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;
@@ -408,6 +427,8 @@ const currencyBinding = FX.bindCurrencySelect(currencySelect, (currency, rate) =
   currentRate = rate;
   renderAllFromCache();
 });
+
+AssetClass.bindAssetClassSelect(document.getElementById("assetClass"));
 
 async function loadAll() {
   const interval = document.getElementById("interval").value;

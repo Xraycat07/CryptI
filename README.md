@@ -16,8 +16,13 @@ Opens on `http://localhost:3001` (or `$PORT` if set).
 - `/` — dashboard: individual candlestick charts + a normalized combined comparison chart
 - `/single.html` — single-coin detail view
 - `/trends.html` — 24h/7d/30d % change table with trend badges and sparklines
-- `/indicators.html` — EMA/RSI/MACD for a selected coin
+- `/indicators.html` — EMA/RSI/MACD + rule-based backtest and account-equity simulation for a selected coin
+- `/predictions.html` — naive linear projection per coin
+- `/performance.html` — strategy backtest summary across every tracked coin
+- `/stocks.html` — live stock quotes (Finnhub) and forex rates, editable ticker/currency chips
 - `/news.html` — recent news tagged by coin (from CoinDesk, Cointelegraph, Decrypt RSS)
+
+All six of the first six pages above have a **Market** dropdown (Crypto/Stocks/Forex) in the header — switching it reloads the page against a different symbol list and data source, so every one of those views (charts, EMA/RSI/MACD, backtest, predictions) works for stocks and forex too, not just crypto. Choice persists across pages via `localStorage`. See `yahoo.js`/`forex.js` below for the data sources and their limitations.
 
 ## API
 
@@ -30,13 +35,19 @@ Opens on `http://localhost:3001` (or `$PORT` if set).
 | `GET /api/prices/hourly/:coin?hours=24` | Hourly historical prices (CoinGecko, up to ~90 days) |
 | `GET /api/candles/:coin?interval=1d&limit=300` | OHLC candles (Coinbase Exchange) — used by the charts. Intervals: `1m`, `5m`, `15m`, `1h`, `6h`, `1d`, `1w` (weekly is aggregated from daily server-side) |
 | `GET /api/coins` | List of supported coin ids |
+| `GET /api/stocks/candles/:symbol?days=300` | Daily OHLCV candles (Yahoo Finance chart endpoint — see notes below). `symbol` is one of `/api/stocks/symbols` |
+| `GET /api/stocks/symbols` | List of supported stock tickers |
+| `GET /api/forex/candles/:pair?days=300` | Daily rate "candles" (frankfurter.dev, ECB reference rates) — `open=high=low=close`, `volume=0`. `pair` is one of `/api/forex/symbols` |
+| `GET /api/forex/symbols` | List of supported forex pairs |
 | `GET /api/news?coin=ripple` | News articles tagged by coin |
 
 ## Notes
 
-- Price/candle data is cached in-memory; it resets on restart or redeploy.
-- No database, no auth — this is a single-instance tool, not built for multi-tenant use.
+- Price/candle data is cached in-memory; it resets on restart or redeploy. The daily-candle *archives* (`data/history/`) are on-disk JSON and survive restarts, backfilling once then growing a few days at a time.
+- No database, no auth — this is a single-instance tool, not built for multi-tenant use (except the Luno tab — see below).
 - CoinGecko's free tier rate-limits fairly aggressively; `/api/candles` uses Coinbase Exchange's public API instead for that reason. Binance was tried first but geoblocks most cloud hosting regions (Render included) under its ToS.
+- **Stock history** (`yahoo.js`) comes from Yahoo Finance's public chart endpoint, not Finnhub — Finnhub's free tier (used for `/api/stocks/quotes`) restricts historical candles to paid plans (confirmed directly against this project's key). Yahoo's endpoint is free but unofficial/undocumented, with no published SLA — it could change or get rate-limited without notice. Daily-only, no intraday granularity.
+- **Forex history** (`forex.js`) comes from frankfurter.dev — free, no key, ECB reference rates. It's one rate per day, not real OHLC, so forex candles are `open=high=low=close` (visible as thin dashes rather than solid candlestick bodies) and `volume=0`. EMA/RSI/MACD/predictions (all close-price-driven) work normally on this; anything relying on a real high/low range looks flat.
 
 ## Deploying
 

@@ -6,6 +6,14 @@ const express = require("express");
 const { OAuth2Client } = require("google-auth-library");
 const { DEFAULT_COINS, getPrices, getDailyHistory, getHourlyHistory, getUsdZarRate, getForexRates, DEFAULT_FOREX_CURRENCIES } = require("./coingecko");
 const { getCandles, SYMBOL_MAP, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo, ALL_INTERVALS } = require("./coinbase");
+const {
+  getCandles: getStockCandles, SYMBOLS: STOCK_SYMBOLS, recordRecentHistory: recordRecentStockHistory,
+  backfillHistoryIfNeeded: backfillStockHistoryIfNeeded, getHistoryInfo: getStockHistoryInfo,
+} = require("./yahoo");
+const {
+  getCandles: getForexCandles, SYMBOLS: FOREX_SYMBOLS, recordRecentHistory: recordRecentForexHistory,
+  backfillHistoryIfNeeded: backfillForexHistoryIfNeeded, getHistoryInfo: getForexHistoryInfo,
+} = require("./forex");
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
@@ -294,6 +302,54 @@ app.get("/api/coins/:coin/history-info", async (req, res) => {
   }
 });
 
+// Daily stock candles — see yahoo.js for why Yahoo instead of Finnhub.
+// Daily-only (no interval param), unlike the crypto candle endpoint above.
+app.get("/api/stocks/candles/:symbol", async (req, res) => {
+  try {
+    const days = Math.min(1825, Math.max(1, parseInt(req.query.days, 10) || 300));
+    const candles = await getStockCandles(req.params.symbol, { days });
+    res.json({ symbol: req.params.symbol.toUpperCase(), candles });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.get("/api/stocks/symbols", (req, res) => {
+  res.json({ symbols: STOCK_SYMBOLS });
+});
+
+app.get("/api/stocks/symbols/:symbol/history-info", async (req, res) => {
+  try {
+    res.json(await getStockHistoryInfo(req.params.symbol));
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Daily forex candles — see forex.js. One rate per day (open=high=low=close,
+// volume=0), not real OHLC; daily-only, same as the stock candles above.
+app.get("/api/forex/candles/:pair", async (req, res) => {
+  try {
+    const days = Math.min(1825, Math.max(1, parseInt(req.query.days, 10) || 300));
+    const candles = await getForexCandles(req.params.pair, { days });
+    res.json({ pair: req.params.pair.toUpperCase(), candles });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.get("/api/forex/symbols", (req, res) => {
+  res.json({ symbols: FOREX_SYMBOLS });
+});
+
+app.get("/api/forex/symbols/:pair/history-info", async (req, res) => {
+  try {
+    res.json(await getForexHistoryInfo(req.params.pair));
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
 // Live stock quotes (Finnhub). Requires FINNHUB_API_KEY in .env.
 app.get("/api/stocks/quotes", async (req, res) => {
   try {
@@ -541,6 +597,22 @@ backfillHistoryIfNeeded()
   .catch((err) => console.error("initial history backfill/recording failed:", err.message));
 setInterval(() => {
   recordRecentHistory().catch((err) => console.error("history recording failed:", err.message));
+}, 6 * 60 * 60 * 1000);
+
+// Same idea again, but for the Stocks/Forex asset classes (see yahoo.js /
+// forex.js) — each backfills once, then the recorder keeps it fresh.
+backfillStockHistoryIfNeeded()
+  .then(() => recordRecentStockHistory())
+  .catch((err) => console.error("initial stock history backfill/recording failed:", err.message));
+setInterval(() => {
+  recordRecentStockHistory().catch((err) => console.error("stock history recording failed:", err.message));
+}, 6 * 60 * 60 * 1000);
+
+backfillForexHistoryIfNeeded()
+  .then(() => recordRecentForexHistory())
+  .catch((err) => console.error("initial forex history backfill/recording failed:", err.message));
+setInterval(() => {
+  recordRecentForexHistory().catch((err) => console.error("forex history recording failed:", err.message));
 }, 6 * 60 * 60 * 1000);
 
 // Same idea as the Coinbase archive above, but for Luno's held ZAR coins
