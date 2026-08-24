@@ -249,13 +249,10 @@ const CRYPTO_COINS = [
 const assetClass = AssetClass.getAssetClass();
 const COINS = AssetClass.coinsFor(assetClass, CRYPTO_COINS);
 
-// Stocks/forex are daily-only (see yahoo.js/forex.js) — the interval picker
-// only applies to crypto's live Coinbase-backed granularities.
+// Stocks/forex don't have crypto's intraday granularities, but do support
+// the same long-range aggregation (1M..2Y) — see asset-class.js.
 const intervalSelect = document.getElementById("interval");
-if (assetClass !== "crypto") {
-  intervalSelect.disabled = true;
-  intervalSelect.title = "Daily only for Stocks/Forex";
-}
+AssetClass.populateIntervalSelect(intervalSelect, assetClass);
 
 const chartTheme = {
   layout: { background: { color: "#0e1117" }, textColor: "#8b93a1" },
@@ -347,8 +344,7 @@ function resizeAll() {
 window.addEventListener("resize", resizeAll);
 
 async function fetchCandles(coinId, interval, limit) {
-  const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
-  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, params)}`);
+  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, { interval, limit })}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;

@@ -9,8 +9,10 @@
 // — the same convention coinbase.js already uses, so it drops into the
 // existing chart/strategy code with no unit conversion.
 const history = require("./history");
+const { aggregateMonthly, aggregateFromMonthly, LONG_AGGREGATE_INTERVALS } = require("./candle-aggregate");
 
 const BASE_URL = "https://query1.finance.yahoo.com";
+const ALL_INTERVALS = ["1d", ...Object.keys(LONG_AGGREGATE_INTERVALS)];
 
 // Curated default list — the same starting tickers stocks.html already
 // offers as quote chips. Not a searchable universe; add more here as needed.
@@ -65,15 +67,31 @@ function assertKnownSymbol(symbol) {
 }
 
 // Local archive (backfilled once, then grown daily — see below) merged with
-// a small live top-up, same pattern as coinbase.js's long-aggregate path.
-async function getCandles(symbol, { days = 300 } = {}) {
+// a small live top-up. interval "1d" (default) returns raw daily candles;
+// "1M"/"3M"/"6M"/"1Y"/"2Y" aggregate the daily archive into calendar-month
+// spans — same long-aggregate behavior as coinbase.js — so a multi-year
+// view shows a readable handful of candles instead of hundreds of daily
+// bars. No intraday intervals (this is a daily-only source).
+async function getCandles(symbol, { interval = "1d", limit = 300 } = {}) {
   assertKnownSymbol(symbol);
   const sym = symbol.toUpperCase();
   const [stored, live] = await Promise.all([
     history.loadStoredDaily(productKeyFor(sym)),
     fetchRange(sym, "1mo").catch(() => []),
   ]);
-  return history.mergeDedupe(stored, live).slice(-days);
+  const daily = history.mergeDedupe(stored, live);
+
+  const longAgg = LONG_AGGREGATE_INTERVALS[interval];
+  if (longAgg) {
+    const monthly = aggregateMonthly(daily);
+    return aggregateFromMonthly(monthly, longAgg.groupMonths).slice(-limit);
+  }
+  if (interval !== "1d") {
+    const err = new Error(`Unsupported interval "${interval}" for stocks. Allowed: ${ALL_INTERVALS.join(", ")}`);
+    err.status = 400;
+    throw err;
+  }
+  return daily.slice(-limit);
 }
 
 // Cheap top-up (1 request/symbol) so the archive keeps growing day over day.
@@ -115,4 +133,4 @@ async function getHistoryInfo(symbol) {
   return { storedDays: stored.length, earliestTime: stored.length ? stored[0].time : null };
 }
 
-module.exports = { getCandles, SYMBOLS, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo };
+module.exports = { getCandles, SYMBOLS, ALL_INTERVALS, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo };

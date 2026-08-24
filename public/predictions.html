@@ -250,11 +250,7 @@ const CRYPTO_COINS = [
 const assetClass = AssetClass.getAssetClass();
 const COINS = AssetClass.coinsFor(assetClass, CRYPTO_COINS);
 AssetClass.bindAssetClassSelect(document.getElementById("assetClass"));
-if (assetClass !== "crypto") {
-  const intervalSelect = document.getElementById("interval");
-  intervalSelect.disabled = true;
-  intervalSelect.title = "Daily only for Stocks/Forex";
-}
+AssetClass.populateIntervalSelect(document.getElementById("interval"), assetClass);
 
 const statusEl = document.getElementById("status");
 const rowsEl = document.getElementById("rows");
@@ -302,8 +298,7 @@ function sparklineWithProjection(historyCloses, projectedCloses, width = 120, he
 }
 
 async function fetchCandles(coinId, interval, limit) {
-  const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
-  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, params)}`);
+  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, { interval, limit })}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;

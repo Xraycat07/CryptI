@@ -826,8 +826,7 @@ async function loadIndicators() {
   setStatus("Loading…");
 
   try {
-    const params = assetClass === "crypto" ? { interval, limit } : { days: limit };
-    const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coin, params)}`);
+    const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coin, { interval, limit })}`);
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
 
@@ -850,18 +849,14 @@ let autoTimer = null;
 const intervalSelectEl = document.getElementById("interval");
 const coinSelectEl = document.getElementById("coin");
 
-// Stocks/forex are daily-only (see yahoo.js/forex.js) — the interval
-// picker's granularities (1m..2Y) are a crypto/Coinbase-specific concept.
-if (assetClass !== "crypto") {
-  intervalSelectEl.disabled = true;
-  intervalSelectEl.title = "Daily only for Stocks/Forex";
-}
+// Stocks/forex don't have crypto's intraday granularities, but do support
+// the same long-range aggregation (1M..2Y) — see asset-class.js.
+AssetClass.populateIntervalSelect(intervalSelectEl, assetClass);
 
 // Disables intervals this coin doesn't have enough stored history for
 // (e.g. 2Y on a recently-listed coin), falling back to the largest
 // available one if the current selection just became invalid.
 async function updateIntervalAvailability(coin) {
-  if (assetClass !== "crypto") return;
   try {
     const res = await fetch(`${API_BASE}${AssetClass.historyInfoUrl(assetClass, coin)}`);
     const info = await res.json();

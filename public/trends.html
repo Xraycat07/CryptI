@@ -256,8 +256,7 @@ function sparkline(closes, width = 100, height = 28) {
 }
 
 async function fetchCandles(coinId, limit) {
-  const params = assetClass === "crypto" ? { interval: "1d", limit } : { days: limit };
-  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, params)}`);
+  const res = await fetch(`${API_BASE}${AssetClass.candlesUrl(assetClass, coinId, { interval: "1d", limit })}`);
   const body = await res.json();
   if (!res.ok) throw new Error(`${coinId}: ${body.error || res.statusText}`);
   return body.candles;

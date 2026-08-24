@@ -51,6 +51,21 @@
     return qs ? `${base}?${qs}` : base;
   }
 
+  // Stocks/forex are daily-only sources (no intraday granularity), but do
+  // support the same calendar-month aggregation crypto uses for long views
+  // (see candle-aggregate.js) — so "1Y"/"2Y" etc. still apply, just not
+  // crypto's intraday intervals (1m..2w).
+  const NON_CRYPTO_INTERVALS = ["1d", "1M", "3M", "6M", "1Y", "2Y"];
+
+  // Replaces a <select id="interval">'s options with the ones valid for
+  // this class, keeping the previous selection if it's still valid.
+  function populateIntervalSelect(selectEl, cls) {
+    if (cls === "crypto") return; // pages already hardcode crypto's full interval list
+    const previous = selectEl.value;
+    selectEl.innerHTML = NON_CRYPTO_INTERVALS.map((v) => `<option value="${v}">${v}</option>`).join("");
+    selectEl.value = NON_CRYPTO_INTERVALS.includes(previous) ? previous : "1d";
+  }
+
   function historyInfoUrl(cls, symbol) {
     return cls === "stocks" ? `/api/stocks/symbols/${symbol}/history-info`
       : cls === "forex" ? `/api/forex/symbols/${symbol}/history-info`
@@ -69,6 +84,6 @@
 
   global.AssetClass = {
     getAssetClass, setAssetClass, coinsFor, candlesUrl, historyInfoUrl, bindAssetClassSelect,
-    STOCK_SYMBOLS, FOREX_SYMBOLS,
+    populateIntervalSelect, STOCK_SYMBOLS, FOREX_SYMBOLS,
   };
 })(window);

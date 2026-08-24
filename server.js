@@ -306,9 +306,10 @@ app.get("/api/coins/:coin/history-info", async (req, res) => {
 // Daily-only (no interval param), unlike the crypto candle endpoint above.
 app.get("/api/stocks/candles/:symbol", async (req, res) => {
   try {
-    const days = Math.min(1825, Math.max(1, parseInt(req.query.days, 10) || 300));
-    const candles = await getStockCandles(req.params.symbol, { days });
-    res.json({ symbol: req.params.symbol.toUpperCase(), candles });
+    const interval = req.query.interval || "1d";
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 300));
+    const candles = await getStockCandles(req.params.symbol, { interval, limit });
+    res.json({ symbol: req.params.symbol.toUpperCase(), interval, candles });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
@@ -330,9 +331,10 @@ app.get("/api/stocks/symbols/:symbol/history-info", async (req, res) => {
 // volume=0), not real OHLC; daily-only, same as the stock candles above.
 app.get("/api/forex/candles/:pair", async (req, res) => {
   try {
-    const days = Math.min(1825, Math.max(1, parseInt(req.query.days, 10) || 300));
-    const candles = await getForexCandles(req.params.pair, { days });
-    res.json({ pair: req.params.pair.toUpperCase(), candles });
+    const interval = req.query.interval || "1d";
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 300));
+    const candles = await getForexCandles(req.params.pair, { interval, limit });
+    res.json({ pair: req.params.pair.toUpperCase(), interval, candles });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }

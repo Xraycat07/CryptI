@@ -7,8 +7,10 @@
 // MACD and the Predictions page (all close-price-driven) work fine on
 // this; anything relying on a real high/low range will look flat.
 const history = require("./history");
+const { aggregateMonthly, aggregateFromMonthly, LONG_AGGREGATE_INTERVALS } = require("./candle-aggregate");
 
 const BASE_URL = "https://api.frankfurter.dev/v1";
+const ALL_INTERVALS = ["1d", ...Object.keys(LONG_AGGREGATE_INTERVALS)];
 
 // Curated pairs, matching stocks.html's existing forex currency defaults
 // made explicit as base/quote pairs (standard market convention — e.g.
@@ -61,7 +63,10 @@ async function fetchRange(pair, startDate, endDate) {
     .sort((a, b) => a.time - b.time);
 }
 
-async function getCandles(pair, { days = 300 } = {}) {
+// interval "1d" (default) returns raw daily rate candles; "1M".."2Y"
+// aggregate into calendar-month spans, same as yahoo.js/coinbase.js, so a
+// multi-year view shows a readable handful of candles.
+async function getCandles(pair, { interval = "1d", limit = 300 } = {}) {
   assertKnownPair(pair);
   const p = pair.toUpperCase();
   const end = new Date();
@@ -70,7 +75,19 @@ async function getCandles(pair, { days = 300 } = {}) {
     history.loadStoredDaily(productKeyFor(p)),
     fetchRange(p, start, end).catch(() => []),
   ]);
-  return history.mergeDedupe(stored, live).slice(-days);
+  const daily = history.mergeDedupe(stored, live);
+
+  const longAgg = LONG_AGGREGATE_INTERVALS[interval];
+  if (longAgg) {
+    const monthly = aggregateMonthly(daily);
+    return aggregateFromMonthly(monthly, longAgg.groupMonths).slice(-limit);
+  }
+  if (interval !== "1d") {
+    const err = new Error(`Unsupported interval "${interval}" for forex. Allowed: ${ALL_INTERVALS.join(", ")}`);
+    err.status = 400;
+    throw err;
+  }
+  return daily.slice(-limit);
 }
 
 // Cheap top-up (1 request/pair, ~30 days) so the archive keeps growing.
@@ -117,4 +134,4 @@ async function getHistoryInfo(pair) {
   return { storedDays: stored.length, earliestTime: stored.length ? stored[0].time : null };
 }
 
-module.exports = { getCandles, SYMBOLS, PAIRS, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo };
+module.exports = { getCandles, SYMBOLS, PAIRS, ALL_INTERVALS, recordRecentHistory, backfillHistoryIfNeeded, getHistoryInfo };
