@@ -326,15 +326,8 @@
   </div>
 
   <div class="tab-panel" data-tab="trade">
-    <div class="panel">
-      <div class="trend-head">
-        <h2>Bot proposals</h2>
-        <span class="trend-sub" id="botLastChecked"></span>
-      </div>
-      <div id="botProposals"><div class="empty">Loading…</div></div>
-      <button id="botCheckNow" class="secondary-btn" type="button" style="margin-top:10px;">Check now</button>
-      <div class="trend-disclaimer">Checks your held, ZAR-priced coins once a day for a fresh buy/sell signal &mdash; the same indicator engine as the Trading signal panel below, run server-side so it keeps watching even with this tab closed. It never places a trade itself: Accept jumps straight to the order form's Confirm step below (limit order at the signal price) &mdash; nothing is sent to Luno until you click Confirm there.</div>
-    </div>
+    <div id="botTiers"><div class="panel"><div class="empty">Loading bots…</div></div></div>
+    <div class="trend-disclaimer" style="margin: -8px 0 14px;">Three independent bots — Low/Medium/High risk — each watch your held, ZAR-priced coins once an hour for a fresh buy/sell signal using the same indicator engine as the Trading signal panel below, just with different confluence/stop settings, run server-side so they keep watching even with this tab closed. None of them place a trade themselves: Accept jumps straight to the order form's Confirm step below (limit order at the signal price) &mdash; nothing is sent to Luno until you click Confirm there.</div>
 
     <div class="panel">
       <h2>Trading signal</h2>
@@ -1684,9 +1677,9 @@ function applySignalToOrderForm(asset, side, price) {
   document.getElementById("orderVolume").focus();
 }
 
-// ---------- bot proposals ----------
-function renderBotProposals(proposals) {
-  const el = document.getElementById("botProposals");
+// ---------- bot proposals (three risk-tier bots) ----------
+function renderBotProposals(tier, proposals) {
+  const el = document.getElementById(`botProposals-${tier}`);
   const pending = proposals.filter((p) => p.status === "pending");
   if (!pending.length) {
     el.innerHTML = '<div class="empty">No pending proposals right now.</div>';
@@ -1703,8 +1696,8 @@ function renderBotProposals(proposals) {
       <div class="row"><span>Entry</span><strong>${zar(p.price)}</strong></div>
       <div class="row"><span>Stop / Target</span><strong>${zar(p.stopLoss)} / ${zar(p.takeProfit)}</strong></div>
       <div class="confirm-actions">
-        <button type="button" class="bot-accept-btn" data-id="${p.id}" data-asset="${p.asset}" data-side="${p.side}" data-price="${p.price}">Accept &amp; confirm order</button>
-        <button type="button" class="secondary-btn bot-dismiss-btn" data-id="${p.id}">Dismiss</button>
+        <button type="button" class="bot-accept-btn" data-id="${p.id}" data-asset="${p.asset}" data-side="${p.side}" data-price="${p.price}" data-tier="${tier}">Accept &amp; confirm order</button>
+        <button type="button" class="secondary-btn bot-dismiss-btn" data-id="${p.id}" data-tier="${tier}">Dismiss</button>
       </div>
     `;
     el.appendChild(card);
@@ -1722,29 +1715,36 @@ function updateTradeTabBadge(pendingCount) {
 }
 
 let botBuyZar = 500;
+const pendingCountByTier = {};
 
-async function loadBotProposals() {
-  const el = document.getElementById("botProposals");
+async function loadBotProposals(tier) {
+  const el = document.getElementById(`botProposals-${tier}`);
   try {
-    const res = await fetch("/api/luno/bot/proposals");
+    const res = await fetch(`/api/luno/bot/${tier}/proposals`);
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     const proposals = body.proposals || [];
     if (body.buyZar) botBuyZar = body.buyZar;
-    renderBotProposals(proposals);
-    updateTradeTabBadge(proposals.filter((p) => p.status === "pending").length);
-    document.getElementById("botLastChecked").textContent = body.lastCheckedAt
-      ? `Last checked ${new Date(body.lastCheckedAt).toLocaleString()}`
-      : "Not checked yet";
+    renderBotProposals(tier, proposals);
+    pendingCountByTier[tier] = proposals.filter((p) => p.status === "pending").length;
+    updateTradeTabBadge(Object.values(pendingCountByTier).reduce((a, b) => a + b, 0));
+    const lastCheckedEl = document.getElementById(`botLastChecked-${tier}`);
+    if (lastCheckedEl) {
+      lastCheckedEl.textContent = body.lastCheckedAt
+        ? `Last checked ${new Date(body.lastCheckedAt).toLocaleString()}`
+        : "Not checked yet";
+    }
   } catch (err) {
     el.innerHTML = `<div class="empty">Bot unavailable: ${err.message}</div>`;
   }
 }
 
 // Sizes an accepted proposal as a limit order at the signal price: sells
-// use the full held balance, buys spend the fixed botBuyZar amount. The raw
-// (unrounded) volume/price are handed to reviewOrder, which rounds them to
-// this pair's actual precision before anything is submitted.
+// use the full held balance, buys spend the fixed botBuyZar amount (same
+// across all three risk tiers — risk is expressed via signal strictness
+// and stop distance, not position size). The raw (unrounded) volume/price
+// are handed to reviewOrder, which rounds them to this pair's actual
+// precision before anything is submitted.
 async function applyBotProposalToReview(asset, side, price) {
   const pair = `${asset}ZAR`;
   const px = Number(price);
@@ -1768,36 +1768,71 @@ async function applyBotProposalToReview(asset, side, price) {
   await reviewOrder(side, pair, "limit", volume, px);
 }
 
-document.getElementById("botProposals").addEventListener("click", async (evt) => {
-  const acceptBtn = evt.target.closest(".bot-accept-btn");
-  const dismissBtn = evt.target.closest(".bot-dismiss-btn");
-  if (acceptBtn) {
-    const { id, asset, side, price } = acceptBtn.dataset;
-    await fetch(`/api/luno/bot/proposals/${id}/accept`, { method: "POST" });
-    await applyBotProposalToReview(asset, side, price);
-    loadBotProposals();
-  } else if (dismissBtn) {
-    await fetch(`/api/luno/bot/proposals/${dismissBtn.dataset.id}/dismiss`, { method: "POST" });
-    loadBotProposals();
-  }
-});
+// Builds the three risk-tier panels from server-supplied metadata (label/
+// description) and wires one delegated click handler for all of them —
+// accept/dismiss/check-now buttons all carry their own data-tier.
+function buildBotTierPanels(tiers) {
+  const container = document.getElementById("botTiers");
+  container.innerHTML = tiers.map((t) => `
+    <div class="panel">
+      <div class="trend-head">
+        <h2>${t.label} bot</h2>
+        <span class="trend-sub" id="botLastChecked-${t.id}"></span>
+      </div>
+      <div class="trend-disclaimer" style="margin-bottom:10px;">${t.description}</div>
+      <div id="botProposals-${t.id}"><div class="empty">Loading…</div></div>
+      <button class="secondary-btn bot-check-now" data-tier="${t.id}" type="button" style="margin-top:10px;">Check now</button>
+    </div>
+  `).join("");
 
-document.getElementById("botCheckNow").addEventListener("click", async () => {
-  const btn = document.getElementById("botCheckNow");
-  btn.disabled = true;
-  btn.textContent = "Checking…";
+  container.addEventListener("click", async (evt) => {
+    const acceptBtn = evt.target.closest(".bot-accept-btn");
+    const dismissBtn = evt.target.closest(".bot-dismiss-btn");
+    const checkBtn = evt.target.closest(".bot-check-now");
+    if (acceptBtn) {
+      const { id, asset, side, price, tier } = acceptBtn.dataset;
+      await fetch(`/api/luno/bot/${tier}/proposals/${id}/accept`, { method: "POST" });
+      await applyBotProposalToReview(asset, side, price);
+      loadBotProposals(tier);
+    } else if (dismissBtn) {
+      const { id, tier } = dismissBtn.dataset;
+      await fetch(`/api/luno/bot/${tier}/proposals/${id}/dismiss`, { method: "POST" });
+      loadBotProposals(tier);
+    } else if (checkBtn) {
+      const tier = checkBtn.dataset.tier;
+      checkBtn.disabled = true;
+      checkBtn.textContent = "Checking…";
+      try {
+        const res = await fetch(`/api/luno/bot/${tier}/check-now`, { method: "POST" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.statusText);
+        await loadBotProposals(tier);
+      } catch (err) {
+        document.getElementById(`botProposals-${tier}`).innerHTML = `<div class="empty">Check failed: ${err.message}</div>`;
+      } finally {
+        checkBtn.disabled = false;
+        checkBtn.textContent = "Check now";
+      }
+    }
+  });
+}
+
+let botTiersLoaded = false;
+async function loadAllBotTiers() {
   try {
-    const res = await fetch("/api/luno/bot/check-now", { method: "POST" });
+    const res = await fetch("/api/luno/bot/tiers");
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
-    await loadBotProposals();
+    if (body.buyZar) botBuyZar = body.buyZar;
+    if (!botTiersLoaded) {
+      buildBotTierPanels(body.tiers || []);
+      botTiersLoaded = true;
+    }
+    await Promise.all((body.tiers || []).map((t) => loadBotProposals(t.id)));
   } catch (err) {
-    document.getElementById("botProposals").innerHTML = `<div class="empty">Check failed: ${err.message}</div>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Check now";
+    document.getElementById("botTiers").innerHTML = `<div class="panel"><div class="empty">Bots unavailable: ${err.message}</div></div>`;
   }
-});
+}
 
 // ---------- price predictions ----------
 
@@ -2225,7 +2260,7 @@ async function loadAll() {
     togglePriceField();
     loadSignal();
     loadPredictions(holdings);
-    loadBotProposals();
+    loadAllBotTiers();
 
     try {
       const { dates, valueSeries, pctSeries, coinPnlSeries } = await buildTrendData(holdings, tradeMarkers, transactions);

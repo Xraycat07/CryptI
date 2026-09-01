@@ -17,7 +17,7 @@ const {
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
-const { startBotLoop, checkOnceFor: runBotCheckOnceFor, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID } = require("./luno-bot");
+const { startBotLoop, checkOnceForTier: runBotCheckOnceForTier, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, getTiers: getBotTiers, setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID } = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
 const { getUsers, findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
 
@@ -563,13 +563,22 @@ app.get("/api/luno/transactions", withLunoCredentials, async (req, res) => {
   }
 });
 
-// The bot's queued buy/sell proposals — it only ever suggests, never trades
-// on its own; accepting one still requires an explicit Confirm click. Each
+// Static metadata for the three risk-tier bots (label/description) — same
+// for every account, doesn't need identity scoping.
+app.get("/api/luno/bot/tiers", (req, res) => {
+  res.json({ tiers: getBotTiers(), ...getBotConfig() });
+});
+
+// Each risk tier's queued buy/sell proposals — none of them ever trade on
+// their own; accepting one still requires an explicit Confirm click. Each
 // account (admin, or a registered user) only ever sees its own proposals.
-app.get("/api/luno/bot/proposals", async (req, res) => {
+app.get("/api/luno/bot/:tier/proposals", async (req, res) => {
   try {
     const identityId = botIdentityId(req);
-    const [proposals, state] = await Promise.all([getBotProposals(identityId), getBotState(identityId)]);
+    const [proposals, state] = await Promise.all([
+      getBotProposals(identityId, req.params.tier),
+      getBotState(identityId, req.params.tier),
+    ]);
     res.json({ proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
@@ -577,30 +586,33 @@ app.get("/api/luno/bot/proposals", async (req, res) => {
 });
 
 // Runs a check immediately instead of waiting for the hourly interval —
-// scoped to just the requesting session's own account.
-app.post("/api/luno/bot/check-now", withLunoCredentials, async (req, res) => {
+// scoped to just the requesting session's own account and this one tier.
+app.post("/api/luno/bot/:tier/check-now", withLunoCredentials, async (req, res) => {
   try {
     const identityId = botIdentityId(req);
-    const added = await runBotCheckOnceFor(identityId, req.lunoCredentials);
-    const [proposals, state] = await Promise.all([getBotProposals(identityId), getBotState(identityId)]);
+    const added = await runBotCheckOnceForTier(identityId, req.params.tier, req.lunoCredentials);
+    const [proposals, state] = await Promise.all([
+      getBotProposals(identityId, req.params.tier),
+      getBotState(identityId, req.params.tier),
+    ]);
     res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
 });
 
-app.post("/api/luno/bot/proposals/:id/accept", async (req, res) => {
+app.post("/api/luno/bot/:tier/proposals/:id/accept", async (req, res) => {
   try {
-    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.id, "accepted");
+    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.tier, req.params.id, "accepted");
     res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
 });
 
-app.post("/api/luno/bot/proposals/:id/dismiss", async (req, res) => {
+app.post("/api/luno/bot/:tier/proposals/:id/dismiss", async (req, res) => {
   try {
-    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.id, "dismissed");
+    const proposal = await setBotProposalStatus(botIdentityId(req), req.params.tier, req.params.id, "dismissed");
     res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
