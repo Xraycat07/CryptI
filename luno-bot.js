@@ -22,9 +22,14 @@ const path = require("path");
 const Strategy = require("./public/strategy.js");
 const { getBalances, getTickers, getCandleHistory } = require("./luno");
 const { getUsers, getUserCredentials } = require("./users");
+const Email = require("./email");
 
 const DATA_DIR = path.join(__dirname, "data", "luno-bot");
 const ADMIN_ID = "admin";
+// Same default this app's admin identity resolves to elsewhere (see
+// OWNER_EMAIL in server.js) — duplicated here rather than shared, since
+// it's one env-var read and this module already reads several of its own.
+const ADMIN_EMAIL = process.env.LUNO_OWNER_EMAIL || "mikkiedutoit@gmail.com";
 
 // Three configs built on the same DEFAULT_CONFIG the Indicators page
 // starts from — only confluence strictness and stop/cooldown differ, so
@@ -177,7 +182,7 @@ async function getHeldPricedAssets(credentials) {
   return Object.keys(qtyByAsset).filter((asset) => qtyByAsset[asset] > 0 && priceByAsset[asset] != null);
 }
 
-async function checkOnceForTier(identityId, tier, credentials) {
+async function checkOnceForTier(identityId, tier, credentials, notifyEmail) {
   assertKnownTier(tier);
   await migrateLegacyFilesOnce();
   const assets = await getHeldPricedAssets(credentials);
@@ -225,6 +230,17 @@ async function checkOnceForTier(identityId, tier, credentials) {
   if (added.length) {
     await saveJson(proposalsFileFor(identityId, tier), [...proposals, ...added]);
     console.log(`luno-bot(${identityId}/${tier}): queued ${added.length} new proposal(s)`);
+    if (notifyEmail) {
+      const label = TIER_INFO[tier].label;
+      const lines = added.map(
+        (p) => `${p.side.toUpperCase()} ${p.pair} at R${p.price.toFixed(2)} (stop R${p.stopLoss.toFixed(2)} / target R${p.takeProfit.toFixed(2)})`
+      );
+      Email.sendMail({
+        to: notifyEmail,
+        subject: `${label} bot: ${added.length} new proposal${added.length > 1 ? "s" : ""}`,
+        text: `Your ${label.toLowerCase()} Luno bot found ${added.length} new signal(s):\n\n${lines.join("\n")}\n\nReview and accept/dismiss in the Luno tab's Trade page.`,
+      }).catch((err) => console.error(`luno-bot(${identityId}/${tier}): email notification failed:`, err.message));
+    }
   }
   await saveJson(stateFileFor(identityId, tier), { lastCheckedAt: Date.now() });
   return added;
@@ -236,18 +252,18 @@ async function checkOnceForTier(identityId, tier, credentials) {
 // instead calls checkOnceForTier directly for one tier of the requesting
 // session's own identity.
 async function checkOnce() {
-  const identities = [{ id: ADMIN_ID, credentials: undefined }];
+  const identities = [{ id: ADMIN_ID, credentials: undefined, email: ADMIN_EMAIL }];
   const users = await getUsers();
   for (const user of users) {
     const credentials = await getUserCredentials(user.id);
-    if (credentials) identities.push({ id: user.id, credentials });
+    if (credentials) identities.push({ id: user.id, credentials, email: user.email });
   }
 
   const added = [];
-  for (const { id, credentials } of identities) {
+  for (const { id, credentials, email } of identities) {
     for (const tier of TIERS) {
       try {
-        added.push(...(await checkOnceForTier(id, tier, credentials)));
+        added.push(...(await checkOnceForTier(id, tier, credentials, email)));
       } catch (err) {
         console.error(`luno-bot(${id}/${tier}): check failed:`, err.message);
       }

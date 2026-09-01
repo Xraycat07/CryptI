@@ -71,3 +71,9 @@ Both methods can be enabled together — password login is unaffected by any of 
 ### Trade tab bots
 
 Three independent bots per account — **Low / Medium / High risk** (`luno-bot.js`) — each watch that account's held, ZAR-priced coins once an hour (`LUNO_BOT_CHECK_INTERVAL_MINUTES`, default 60) for a fresh buy/sell signal, using the same indicator engine as the Indicators tab but with different confluence/stop settings per tier (Low needs 4/5 indicators to agree with a tight 1.5% stop; Medium is the Indicators tab's own default; High only needs 2/5 with a wider 3% stop) — so they're genuinely independent opinions on the same data, not just relabeled copies. None of them ever place a trade: accepting a proposal jumps to the order form's Confirm step (sized from `LUNO_BOT_BUY_ZAR`, default 500, for buys — sells use the full held balance), and nothing reaches Luno until that Confirm click.
+
+**Email notifications** (optional, `email.js`) — whenever any bot queues a new proposal (whether from the hourly background check or a manual "Check now"), an email goes to that account's own address: the registered user's email for a Google sign-in, or `LUNO_OWNER_EMAIL` for the admin session. Sent via Gmail SMTP ([nodemailer](https://nodemailer.com/)):
+1. On the Gmail account you want to send *from*, turn on 2-Step Verification, then create an [app password](https://myaccount.google.com/apppasswords) (Google Account → Security → 2-Step Verification → App passwords).
+2. Set `EMAIL_FROM` to that Gmail address and `EMAIL_APP_PASSWORD` to the generated app password (not the account's real password — Gmail rejects that for SMTP).
+
+Without both set, this silently no-ops — proposals still queue normally, no email attempted. A failed send (bad credentials, rate limit, etc.) is logged and never blocks the actual bot check.

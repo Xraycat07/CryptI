@@ -133,6 +133,14 @@ function botIdentityId(req) {
   return !req.lunoAuth || req.lunoAuth.kind === "admin" ? BOT_ADMIN_ID : req.lunoAuth.userId;
 }
 
+// Where to email a "new bot proposal" notification for this session — the
+// owner's own address for admin, or the registered user's own email.
+async function botIdentityEmail(req) {
+  if (!req.lunoAuth || req.lunoAuth.kind === "admin") return OWNER_EMAIL;
+  const user = await getUserById(req.lunoAuth.userId);
+  return user?.email || null;
+}
+
 // Resolves this session's Luno credentials onto req.lunoCredentials for the
 // account-specific routes below. A registered user with no saved keys gets
 // a clear 400 instead of the route ever calling Luno.
@@ -590,7 +598,8 @@ app.get("/api/luno/bot/:tier/proposals", async (req, res) => {
 app.post("/api/luno/bot/:tier/check-now", withLunoCredentials, async (req, res) => {
   try {
     const identityId = botIdentityId(req);
-    const added = await runBotCheckOnceForTier(identityId, req.params.tier, req.lunoCredentials);
+    const email = await botIdentityEmail(req);
+    const added = await runBotCheckOnceForTier(identityId, req.params.tier, req.lunoCredentials, email);
     const [proposals, state] = await Promise.all([
       getBotProposals(identityId, req.params.tier),
       getBotState(identityId, req.params.tier),
