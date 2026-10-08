@@ -335,9 +335,19 @@
             <label>Min touches <input type="number" id="cfg-trendlines-minTouches" value="2" min="2" max="10"></label>
           </div>
           <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-bollinger-enabled" checked> Bollinger Bands</label></div>
+            <label>Period <input type="number" id="cfg-bollinger-period" value="20" min="5" max="100"></label>
+            <label>Std dev <input type="number" id="cfg-bollinger-stdDev" value="2" step="0.1" min="0.5" max="5"></label>
+          </div>
+          <div class="cfg-card">
+            <div class="cfg-title"><label><input type="checkbox" id="cfg-volume-enabled" checked> Volume confirmation</label></div>
+            <label>Period <input type="number" id="cfg-volume-period" value="20" min="5" max="100"></label>
+            <label>Spike × <input type="number" id="cfg-volume-multiplier" value="1.5" step="0.1" min="1" max="5"></label>
+          </div>
+          <div class="cfg-card">
             <div class="cfg-title">Confluence</div>
-            <label>Min bullish <input type="number" id="cfg-minBullish" value="3" min="1" max="5"></label>
-            <label>Min bearish <input type="number" id="cfg-minBearish" value="3" min="1" max="5"></label>
+            <label>Min bullish <input type="number" id="cfg-minBullish" value="3" min="1" max="7"></label>
+            <label>Min bearish <input type="number" id="cfg-minBearish" value="3" min="1" max="7"></label>
             <label>Cooldown bars <input type="number" id="cfg-cooldown" value="5" min="0" max="60"></label>
           </div>
           <div class="cfg-card">
@@ -388,6 +398,7 @@
       <div class="legend-inline">
         <span><span class="swatch" style="background:#e6b400"></span>EMA 20</span>
         <span><span class="swatch" style="background:#4f8cff"></span>EMA 50</span>
+        <span><span class="swatch" style="background:#8b93a1"></span>Bollinger</span>
       </div>
     </div>
     <div id="price-chart"></div>
@@ -423,7 +434,7 @@
 
 <script>
 const API_BASE = "";
-const { ema, rsi, macd } = Strategy;
+const { ema, rsi, macd, bollingerBands } = Strategy;
 
 const CRYPTO_COINS = [
   { id: "bitcoin", label: "BTC" }, { id: "ethereum", label: "ETH" }, { id: "ripple", label: "XRP" },
@@ -460,6 +471,8 @@ const candleSeries = priceChart.addCandlestickSeries({
 });
 const ema20Series = priceChart.addLineSeries({ color: "#e6b400", lineWidth: 2 });
 const ema50Series = priceChart.addLineSeries({ color: "#4f8cff", lineWidth: 2 });
+const bbUpperSeries = priceChart.addLineSeries({ color: "#8b93a1", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lastValueVisible: false, priceLineVisible: false });
+const bbLowerSeries = priceChart.addLineSeries({ color: "#8b93a1", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lastValueVisible: false, priceLineVisible: false });
 
 const rsiChart = LightweightCharts.createChart(document.getElementById("rsi-chart"), chartTheme);
 const rsiSeries = rsiChart.addLineSeries({ color: "#c586c0", lineWidth: 2 });
@@ -527,6 +540,8 @@ function readConfigFromForm() {
       macd: { enabled: bool("cfg-macd-enabled"), fast: num("cfg-macd-fast"), slow: num("cfg-macd-slow"), signal: num("cfg-macd-signal") },
       srZones: { enabled: bool("cfg-srZones-enabled"), tolerancePct: num("cfg-srZones-tolerancePct"), minTouches: num("cfg-srZones-minTouches"), proximityPct: num("cfg-srZones-proximityPct"), maxZones: num("cfg-srZones-maxZones") },
       trendlines: { enabled: bool("cfg-trendlines-enabled"), tolerancePct: num("cfg-trendlines-tolerancePct"), minTouches: num("cfg-trendlines-minTouches") },
+      bollinger: { enabled: bool("cfg-bollinger-enabled"), period: num("cfg-bollinger-period"), stdDev: num("cfg-bollinger-stdDev") },
+      volume: { enabled: bool("cfg-volume-enabled"), period: num("cfg-volume-period"), multiplier: num("cfg-volume-multiplier") },
     },
     confluence: { minBullish: num("cfg-minBullish"), minBearish: num("cfg-minBearish") },
     cooldownBars: num("cfg-cooldown"),
@@ -557,6 +572,12 @@ function writeConfigToForm(cfg) {
   setBool("cfg-trendlines-enabled", cfg.indicators.trendlines.enabled);
   set("cfg-trendlines-tolerancePct", cfg.indicators.trendlines.tolerancePct);
   set("cfg-trendlines-minTouches", cfg.indicators.trendlines.minTouches);
+  setBool("cfg-bollinger-enabled", cfg.indicators.bollinger.enabled);
+  set("cfg-bollinger-period", cfg.indicators.bollinger.period);
+  set("cfg-bollinger-stdDev", cfg.indicators.bollinger.stdDev);
+  setBool("cfg-volume-enabled", cfg.indicators.volume.enabled);
+  set("cfg-volume-period", cfg.indicators.volume.period);
+  set("cfg-volume-multiplier", cfg.indicators.volume.multiplier);
   set("cfg-minBullish", cfg.confluence.minBullish);
   set("cfg-minBearish", cfg.confluence.minBearish);
   set("cfg-cooldown", cfg.cooldownBars);
@@ -761,6 +782,17 @@ function renderStrategy(candles) {
     ema20Series.setData([]);
     ema50Series.setData([]);
     priceTitleEl.textContent = "Price";
+  }
+
+  // Bollinger Bands overlay — upper/lower only (the middle SMA line would
+  // just duplicate the EMA overlay visually, so it's left off the chart).
+  if (cfg.indicators.bollinger.enabled) {
+    const { upper, lower } = bollingerBands(candles.map(c => c.close), cfg.indicators.bollinger.period, cfg.indicators.bollinger.stdDev);
+    bbUpperSeries.setData(toLineData(times, upper));
+    bbLowerSeries.setData(toLineData(times, lower));
+  } else {
+    bbUpperSeries.setData([]);
+    bbLowerSeries.setData([]);
   }
 
   // RSI panel follows the rsi indicator's configured period

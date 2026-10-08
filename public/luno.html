@@ -310,6 +310,12 @@
     </div>
 
     <div class="panel">
+      <h2>Price history per coin</h2>
+      <div id="priceHistoryGrid" class="pnl-grid"><div class="empty">Loading…</div></div>
+      <div class="trend-disclaimer">Actual ZAR price history per held coin (not normalized), with triangles marking your real buy (&#9650;) and sell (&#9660;) points at the price you actually traded at &mdash; hover a marker for the exact amount and date.</div>
+    </div>
+
+    <div class="panel">
       <div class="trend-head">
         <h2>Price trend</h2>
         <span class="trend-sub">90d history + 7d projected &middot; % change, indexed to day 1 &middot; markers show your actual buys/sells</span>
@@ -338,7 +344,7 @@
         </div>
       </div>
       <div id="signalBody"><div class="empty">Loading…</div></div>
-      <div class="trend-disclaimer">Reuses the shared indicator config from the <a href="/indicators.html" style="color: var(--accent);">Indicators</a> tab (EMA cross, RSI, MACD, S/R zones, trendlines). Not financial advice — always review before trading.</div>
+      <div class="trend-disclaimer">Reuses the shared indicator config from the <a href="/indicators.html" style="color: var(--accent);">Indicators</a> tab (EMA cross, RSI, MACD, S/R zones, trendlines, Bollinger Bands, volume confirmation). Not financial advice — always review before trading.</div>
     </div>
 
     <div class="panel">
@@ -761,7 +767,7 @@ function computeNetSpentOverTime(dates, tradeMarkers, asset) {
 // projected backward.
 async function buildTrendData(holdings, tradeMarkers, transactions) {
   const priced = holdings.filter((h) => h.asset !== "ZAR" && h.price != null && h.qty > 0);
-  if (!priced.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
+  if (!priced.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [], byAssetCandles: {} };
 
   const results = await Promise.allSettled(priced.map((h) => fetchHistory(h.asset)));
   const byAsset = {};
@@ -770,11 +776,13 @@ async function buildTrendData(holdings, tradeMarkers, transactions) {
   });
 
   const assets = Object.keys(byAsset);
-  if (!assets.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
+  if (!assets.length) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [], byAssetCandles: {} };
 
   const tsSets = assets.map((a) => new Set(byAsset[a].map((c) => c.time)));
   const common = [...tsSets[0]].filter((t) => tsSets.every((s) => s.has(t))).sort((a, b) => a - b);
-  if (common.length < 2) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [] };
+  // Per-coin price charts don't need a common cross-asset date axis the way
+  // the combined trend charts do, so byAsset is still usable even here.
+  if (common.length < 2) return { dates: [], valueSeries: [], pctSeries: [], coinPnlSeries: [], byAssetCandles: byAsset };
 
   const closeAt = {};
   for (const a of assets) {
@@ -814,7 +822,7 @@ async function buildTrendData(holdings, tradeMarkers, transactions) {
       return { asset: h.asset, value: h.value, points };
     });
 
-  return { dates: common, valueSeries, pctSeries, coinPnlSeries };
+  return { dates: common, valueSeries, pctSeries, coinPnlSeries, byAssetCandles: byAsset };
 }
 
 const VB_W = 640, VB_H = 200, PAD_L = 44, PAD_R = 10, PAD_T = 10, PAD_B = 26;
@@ -1346,6 +1354,74 @@ function renderCoinPnlTrend(dates, series, tradeMarkers = []) {
     crosshair.setAttribute("opacity", 0);
     trendTooltipEl.classList.remove("visible");
   });
+}
+
+// Real (non-normalized) ZAR close-price line for one coin, with triangle
+// markers at each actual buy/sell trade — placed at the candle closest to
+// the trade's own timestamp, but at the price actually paid (zar/qty from
+// the ledger), not that day's close, so a trade at an intraday spike still
+// shows where it really landed relative to the daily range.
+function priceHistoryWithMarkers(candles, trades, width = 150, height = 40) {
+  const closes = candles.map((c) => c.close);
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const range = max - min || 1;
+  const n = closes.length;
+  const xAt = (i) => (n <= 1 ? 0 : (i / (n - 1)) * width);
+  const yAt = (v) => height - ((Math.min(max, Math.max(min, v)) - min) / range) * height;
+  const linePts = closes.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+  const up = closes[closes.length - 1] >= closes[0];
+  const lineColor = up ? "#4caf7d" : "#ef5350";
+
+  const markerSvg = trades.map((t) => {
+    let closestIdx = 0, closestDiff = Infinity;
+    candles.forEach((c, i) => {
+      const diff = Math.abs(c.time * 1000 - t.time);
+      if (diff < closestDiff) { closestDiff = diff; closestIdx = i; }
+    });
+    const x = xAt(closestIdx);
+    const price = t.qty > 0 ? t.zar / t.qty : closes[closestIdx];
+    const y = yAt(price);
+    const isBuy = t.side === "buy";
+    const d = isBuy
+      ? `M ${x - 3.5},${(y + 4).toFixed(1)} L ${x.toFixed(1)},${(y - 4).toFixed(1)} L ${(x + 3.5).toFixed(1)},${(y + 4).toFixed(1)} Z`
+      : `M ${(x - 3.5).toFixed(1)},${(y - 4).toFixed(1)} L ${x.toFixed(1)},${(y + 4).toFixed(1)} L ${(x + 3.5).toFixed(1)},${(y - 4).toFixed(1)} Z`;
+    const title = `${isBuy ? "Bought" : "Sold"} ${qty(t.qty)} at ${zar(price)} · ${new Date(t.time).toLocaleDateString()}`;
+    return `<path d="${d}" fill="${isBuy ? "#4caf7d" : "#ef5350"}" stroke="var(--panel)" stroke-width="1"><title>${title}</title></path>`;
+  }).join("");
+
+  return `<svg width="${width}" height="${height}">
+    <polyline points="${linePts}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>
+    ${markerSvg}
+  </svg>`;
+}
+
+// One small real-price chart per currently-held, ZAR-priced coin — pulls
+// from the same per-asset candle history buildTrendData already fetched
+// (byAssetCandles), no extra network round-trip.
+function renderPriceHistoryGrid(byAssetCandles, tradeMarkers) {
+  const el = document.getElementById("priceHistoryGrid");
+  el.innerHTML = "";
+  const assets = Object.keys(byAssetCandles || {});
+  if (!assets.length) {
+    el.innerHTML = '<div class="empty">No held, ZAR-priced coins with history yet.</div>';
+    return;
+  }
+  for (const asset of assets.sort()) {
+    const candles = byAssetCandles[asset];
+    if (!candles.length) continue;
+    const trades = tradeMarkers.filter((t) => t.asset === asset);
+    const lastClose = candles[candles.length - 1].close;
+    const card = document.createElement("div");
+    card.className = "pnl-card";
+    card.innerHTML = `
+      <div class="pnl-card-head">
+        <span class="pnl-card-asset">${asset}</span>
+        <span class="pnl-card-value">${zar(lastClose)}</span>
+      </div>
+      ${priceHistoryWithMarkers(candles, trades)}
+    `;
+    el.appendChild(card);
+  }
 }
 
 // One small sparkline card per currently-held coin (coinPnlSeries is
@@ -2263,7 +2339,7 @@ async function loadAll() {
     loadAllBotTiers();
 
     try {
-      const { dates, valueSeries, pctSeries, coinPnlSeries } = await buildTrendData(holdings, tradeMarkers, transactions);
+      const { dates, valueSeries, pctSeries, coinPnlSeries, byAssetCandles } = await buildTrendData(holdings, tradeMarkers, transactions);
       renderValueTrend(dates, valueSeries);
       renderPctTrend(dates, pctSeries, tradeMarkers);
       const netContributions = reconstructNetContributionsOverTime(dates, transactions);
@@ -2271,6 +2347,7 @@ async function loadAll() {
       renderProfitTrend(dates, profitSeries);
       renderCoinPnlTrend(dates, coinPnlSeries, tradeMarkers);
       renderCoinPnlGrid(coinPnlSeries);
+      renderPriceHistoryGrid(byAssetCandles, tradeMarkers);
     } catch (trendErr) {
       const msg = document.createElement("div");
       msg.className = "trend-empty";
@@ -2283,6 +2360,7 @@ async function loadAll() {
       coinPnlChartEl.innerHTML = "";
       coinPnlLegendEl.innerHTML = "";
       document.getElementById("coinPnlGrid").innerHTML = "";
+      document.getElementById("priceHistoryGrid").innerHTML = "";
     }
 
     setStatus(`Updated ${new Date().toLocaleTimeString()}`);

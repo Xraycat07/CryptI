@@ -1,7 +1,8 @@
 // Server-side "bots" that watch each account's held, ZAR-priced coins for
 // a fresh buy/sell signal — the same indicator engine as the Trading
-// signal panel (EMA cross, RSI, MACD, S/R zones, trendlines) — and queue a
-// proposal for that account's owner to approve or reject. There are three
+// signal panel (EMA cross, RSI, MACD, S/R zones, trendlines, Bollinger
+// Bands, volume confirmation) — and queue a proposal for that account's
+// owner to approve or reject. There are three
 // independent bots per account, one per risk tier (see RISK_TIERS below) —
 // same signal engine, different confluence/stop settings, so they watch
 // the same candles but don't necessarily agree on when a signal is worth
@@ -36,6 +37,14 @@ const ADMIN_EMAIL = process.env.LUNO_OWNER_EMAIL || "mikkiedutoit@gmail.com";
 // each tier is a genuinely different filter over the same signal engine,
 // not just a label. "medium" is exactly DEFAULT_CONFIG (unchanged from
 // before this was split into tiers).
+//
+// The indicator engine now has 7 indicators (added bollinger + volume) —
+// thresholds here were re-tested against ~2 years of real Luno candle
+// history across 11 pairs before settling: with 7 voting, 2/7 fires very
+// often (500+ signals total in that test), 3/7 is a sane default frequency
+// (~7/asset over 2 years), and 4/7 is already rare (2 signals total) —
+// 5/7 never fired once. So "low risk" tops out at 4/7 deliberately, not 5+,
+// since a threshold that (near-)never fires isn't useful at any risk tier.
 const RISK_TIERS = {
   low: {
     ...Strategy.DEFAULT_CONFIG,
@@ -53,9 +62,9 @@ const RISK_TIERS = {
 };
 const TIERS = Object.keys(RISK_TIERS);
 const TIER_INFO = {
-  low: { label: "Low risk", description: "Needs 4 of 5 indicators to agree, tighter 1.5% stop, longer 10-bar cooldown — fewer, higher-conviction signals." },
-  medium: { label: "Medium risk", description: "The default balance — 3 of 5 indicators must agree, 2% stop, 5-bar cooldown." },
-  high: { label: "High risk", description: "Only 2 of 5 indicators need to agree, wider 3% stop, short 2-bar cooldown — more frequent, lower-conviction signals." },
+  low: { label: "Low risk", description: "Needs 4 of 7 indicators to agree, tighter 1.5% stop, longer 10-bar cooldown — rare but real, higher-conviction signals." },
+  medium: { label: "Medium risk", description: "The default balance — 3 of 7 indicators must agree, 2% stop, 5-bar cooldown." },
+  high: { label: "High risk", description: "Only 2 of 7 indicators need to agree, wider 3% stop, short 2-bar cooldown — more frequent, lower-conviction signals." },
 };
 
 function assertKnownTier(tier) {
