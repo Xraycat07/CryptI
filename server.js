@@ -22,6 +22,7 @@ const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: b
 const { getUsers, findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
 
 function timingSafeStringEqual(a, b) {
@@ -682,3 +683,10 @@ setInterval(() => {
 // Watches held, ZAR-priced Luno coins for a fresh buy/sell signal once a
 // day and queues a proposal — see luno-bot.js. Never places an order.
 startBotLoop();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of sessions) {
+    if (now > s.expiresAt) sessions.delete(id);
+  }
+}, 60 * 60 * 1000);

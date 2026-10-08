@@ -468,6 +468,7 @@ const predictionsEl = document.getElementById("predictions");
 const CATEGORICAL = ["var(--cat-1)", "var(--cat-2)", "var(--cat-3)", "var(--cat-4)", "var(--cat-5)"];
 const TREND_DAYS = 90;
 
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 const zar = (n) => "R " + Number(n).toLocaleString("en-ZA", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const zarCompact = (n) => {
   const abs = Math.abs(n);
@@ -1187,8 +1188,8 @@ function renderPctTrend(dates, series, tradeMarkers = []) {
     for (const t of tradesByDayIndex.get(i) || []) {
       const row = document.createElement("div");
       row.className = "tt-row";
-      const feePart = t.fee ? ` &middot; fee ${t.fee}` : "";
-      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${t.asset}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
+      const feePart = t.fee ? ` &middot; fee ${esc(t.fee)}` : "";
+      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${esc(t.asset)}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
       trendTtRows.appendChild(row);
     }
     trendTooltipEl.classList.add("visible");
@@ -1344,8 +1345,8 @@ function renderCoinPnlTrend(dates, series, tradeMarkers = []) {
     for (const t of tradesByDayIndex.get(i) || []) {
       const row = document.createElement("div");
       row.className = "tt-row";
-      const feePart = t.fee ? ` &middot; fee ${t.fee}` : "";
-      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${t.asset}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
+      const feePart = t.fee ? ` &middot; fee ${esc(t.fee)}` : "";
+      row.innerHTML = `<span class="side-${t.side === "buy" ? "BUY" : "SELL"}">${t.side === "buy" ? "Bought" : "Sold"} ${esc(t.asset)}</span><strong>${qty(t.qty)} (${zar(t.zar)})${feePart}</strong>`;
       trendTtRows.appendChild(row);
     }
     trendTooltipEl.classList.add("visible");
@@ -1375,7 +1376,7 @@ function priceHistoryWithMarkers(candles, trades, width = 150, height = 40) {
   const markerSvg = trades.map((t) => {
     let closestIdx = 0, closestDiff = Infinity;
     candles.forEach((c, i) => {
-      const diff = Math.abs(c.time * 1000 - t.time);
+      const diff = Math.abs(c.time - t.time);
       if (diff < closestDiff) { closestDiff = diff; closestIdx = i; }
     });
     const x = xAt(closestIdx);
@@ -1463,12 +1464,12 @@ function renderOrders(rows) {
       <tbody>
         ${rows.map(o => `
           <tr>
-            <td>${o.pair}</td>
-            <td class="side-${o.type}">${o.type}</td>
+            <td>${esc(o.pair)}</td>
+            <td class="side-${esc(o.type)}">${esc(o.type)}</td>
             <td class="num">${qty(o.limit_volume ?? o.base ?? 0)}</td>
             <td class="num">${Number(o.limit_price ?? o.price ?? 0).toLocaleString()}</td>
             <td>${o.creation_timestamp ? new Date(Number(o.creation_timestamp)).toLocaleString() : ""}</td>
-            <td><button type="button" class="cancel-btn" data-order-id="${o.order_id}">Cancel</button></td>
+            <td><button type="button" class="cancel-btn" data-order-id="${esc(o.order_id)}">Cancel</button></td>
           </tr>
         `).join("")}
       </tbody>
@@ -1525,7 +1526,7 @@ function renderTransactions(rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${new Date(r.timestamp).toLocaleString()}</td>
-      <td>${r.description}</td>
+      <td>${esc(r.description)}</td>
       <td class="num ${cls}">${amount >= 0 ? "+" : "-"}${zar(Math.abs(amount))}</td>
       <td class="num muted-cell">${fee}</td>
     `;
@@ -1867,12 +1868,14 @@ function buildBotTierPanels(tiers) {
     const checkBtn = evt.target.closest(".bot-check-now");
     if (acceptBtn) {
       const { id, asset, side, price, tier } = acceptBtn.dataset;
-      await fetch(`/api/luno/bot/${tier}/proposals/${id}/accept`, { method: "POST" });
+      const res = await fetch(`/api/luno/bot/${tier}/proposals/${id}/accept`, { method: "POST" });
+      if (!res.ok) { setStatus("Accept failed: " + ((await res.json().catch(() => ({}))).error || res.statusText), true); return; }
       await applyBotProposalToReview(asset, side, price);
       loadBotProposals(tier);
     } else if (dismissBtn) {
       const { id, tier } = dismissBtn.dataset;
-      await fetch(`/api/luno/bot/${tier}/proposals/${id}/dismiss`, { method: "POST" });
+      const res = await fetch(`/api/luno/bot/${tier}/proposals/${id}/dismiss`, { method: "POST" });
+      if (!res.ok) { setStatus("Dismiss failed: " + ((await res.json().catch(() => ({}))).error || res.statusText), true); return; }
       loadBotProposals(tier);
     } else if (checkBtn) {
       const tier = checkBtn.dataset.tier;
@@ -2514,7 +2517,7 @@ function renderAdminUsers(users) {
     <tbody>
       ${users.map((u) => `
         <tr>
-          <td>${u.email}</td>
+          <td>${esc(u.email)}</td>
           <td>${new Date(u.createdAt).toLocaleString()}</td>
           <td>${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}</td>
           <td>${u.hasLunoKeys ? "Saved" : "Not added"}</td>

@@ -9,6 +9,12 @@ const crypto = require("crypto");
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
+let writeChain = Promise.resolve();
+function serialized(fn) {
+  writeChain = writeChain.then(fn, fn);
+  return writeChain;
+}
+
 async function loadUsers() {
   try {
     return JSON.parse(await fs.readFile(USERS_FILE, "utf8"));
@@ -53,16 +59,18 @@ async function getUsers() {
 
 // Called on every successful Google sign-in, so lastLoginAt tracks actual
 // login activity (not just account creation) — see the admin user list.
-async function findOrCreateUser(email) {
-  const users = await loadUsers();
-  let user = users.find((u) => u.email === email);
-  if (!user) {
-    user = { id: `u_${crypto.randomBytes(8).toString("hex")}`, email, createdAt: Date.now(), lastLoginAt: null, luno: null };
-    users.push(user);
-  }
-  user.lastLoginAt = Date.now();
-  await saveUsers(users);
-  return user;
+function findOrCreateUser(email) {
+  return serialized(async () => {
+    const users = await loadUsers();
+    let user = users.find((u) => u.email === email);
+    if (!user) {
+      user = { id: `u_${crypto.randomBytes(8).toString("hex")}`, email, createdAt: Date.now(), lastLoginAt: null, luno: null };
+      users.push(user);
+    }
+    user.lastLoginAt = Date.now();
+    await saveUsers(users);
+    return user;
+  });
 }
 
 async function getUserById(id) {
@@ -86,36 +94,40 @@ async function getUserCredentials(id) {
   }
 }
 
-async function setUserLunoKeys(id, { keyId, secret }) {
-  const key = getEncryptionKey();
-  if (!key) {
-    const err = new Error("CREDENTIAL_ENCRYPTION_KEY is not configured on the server");
-    err.status = 500;
-    throw err;
-  }
-  const users = await loadUsers();
-  const user = users.find((u) => u.id === id);
-  if (!user) {
-    const err = new Error("User not found");
-    err.status = 404;
-    throw err;
-  }
-  user.luno = { keyId, secretEncrypted: encryptSecret(secret, key) };
-  await saveUsers(users);
-  return user;
+function setUserLunoKeys(id, { keyId, secret }) {
+  return serialized(async () => {
+    const key = getEncryptionKey();
+    if (!key) {
+      const err = new Error("CREDENTIAL_ENCRYPTION_KEY is not configured on the server");
+      err.status = 500;
+      throw err;
+    }
+    const users = await loadUsers();
+    const user = users.find((u) => u.id === id);
+    if (!user) {
+      const err = new Error("User not found");
+      err.status = 404;
+      throw err;
+    }
+    user.luno = { keyId, secretEncrypted: encryptSecret(secret, key) };
+    await saveUsers(users);
+    return user;
+  });
 }
 
-async function clearUserLunoKeys(id) {
-  const users = await loadUsers();
-  const user = users.find((u) => u.id === id);
-  if (!user) {
-    const err = new Error("User not found");
-    err.status = 404;
-    throw err;
-  }
-  user.luno = null;
-  await saveUsers(users);
-  return user;
+function clearUserLunoKeys(id) {
+  return serialized(async () => {
+    const users = await loadUsers();
+    const user = users.find((u) => u.id === id);
+    if (!user) {
+      const err = new Error("User not found");
+      err.status = 404;
+      throw err;
+    }
+    user.luno = null;
+    await saveUsers(users);
+    return user;
+  });
 }
 
 module.exports = { getUsers, findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys };
