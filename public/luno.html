@@ -335,6 +335,16 @@
     <div id="botTiers"><div class="panel"><div class="empty">Loading bots…</div></div></div>
     <div class="trend-disclaimer" style="margin: -8px 0 14px;">Three independent bots — Low/Medium/High risk — each watch your held, ZAR-priced coins once an hour for a fresh buy/sell signal using the same indicator engine as the Trading signal panel below, just with different confluence/stop settings, run server-side so they keep watching even with this tab closed. None of them place a trade themselves: Accept jumps straight to the order form's Confirm step below (limit order at the signal price) &mdash; nothing is sent to Luno until you click Confirm there.</div>
 
+    <div class="panel" id="rebalancePanel">
+      <div class="trend-head">
+        <h2>Rebalance bot</h2>
+        <span class="trend-sub" id="rebalanceLastChecked"></span>
+      </div>
+      <div class="trend-disclaimer" style="margin-bottom:10px;">Compares all your held coins' momentum and proposes swapping the weakest (declining) into the strongest (rising) when the projected gain exceeds round-trip trading fees. Two trades: sell the declining coin to ZAR, then buy the rising coin — each still requires your Confirm click.</div>
+      <div id="rebalanceProposals"><div class="empty">Loading…</div></div>
+      <button class="secondary-btn" id="rebalanceCheckNow" type="button" style="margin-top:10px;">Check now</button>
+    </div>
+
     <div class="panel">
       <h2>Trading signal</h2>
       <div class="field-row">
@@ -1913,6 +1923,99 @@ async function loadAllBotTiers() {
   }
 }
 
+// ---------- rebalance bot ----------
+async function loadRebalanceProposals() {
+  const el = document.getElementById("rebalanceProposals");
+  try {
+    const res = await fetch("/api/luno/bot/rebalance/proposals");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderRebalanceProposals(body.proposals || []);
+    const lastEl = document.getElementById("rebalanceLastChecked");
+    if (lastEl) {
+      lastEl.textContent = body.lastCheckedAt
+        ? `Last checked ${new Date(body.lastCheckedAt).toLocaleString()}`
+        : "Not checked yet";
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="empty">Rebalance unavailable: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderRebalanceProposals(proposals) {
+  const el = document.getElementById("rebalanceProposals");
+  const pending = proposals.filter((p) => p.status === "pending");
+  if (!pending.length) {
+    el.innerHTML = '<div class="empty">No swap proposals right now — all coins are within normal range or fees outweigh the gain.</div>';
+    return;
+  }
+  el.innerHTML = "";
+  for (const p of pending) {
+    const card = document.createElement("div");
+    card.className = "confirm-box";
+    card.style.marginTop = "10px";
+    const sellDir = p.sellProjectedPct >= 0 ? "+" : "";
+    const buyDir = p.buyProjectedPct >= 0 ? "+" : "";
+    card.innerHTML = `
+      <div class="row"><span>Swap</span><strong><span class="side-SELL">${esc(p.sellAsset)}</span> → <span class="side-BUY">${esc(p.buyAsset)}</span></strong></div>
+      <div class="row"><span>Sell ${esc(p.sellAsset)}</span><strong>${zar(p.sellPrice)} (${sellDir}${p.sellProjectedPct.toFixed(1)}% projected)${p.sellSignal ? ' · ' + p.sellSignal + ' signal' : ''}</strong></div>
+      <div class="row"><span>Buy ${esc(p.buyAsset)}</span><strong>${zar(p.buyPrice)} (${buyDir}${p.buyProjectedPct.toFixed(1)}% projected)${p.buySignal ? ' · ' + p.buySignal + ' signal' : ''}</strong></div>
+      <div class="row"><span>Round-trip fees</span><strong>~${p.roundTripFeePct.toFixed(2)}% (sell ${p.sellFeePct.toFixed(2)}% + buy ${p.buyFeePct.toFixed(2)}%)</strong></div>
+      <div class="row"><span>Est. net gain</span><strong class="side-BUY">+${p.netGainPct.toFixed(1)}%</strong></div>
+      <div class="row"><span>Est. sell proceeds</span><strong>~${zar(p.estimatedSellZar)}</strong></div>
+      <div class="confirm-actions">
+        <button type="button" class="rebal-accept-btn" data-id="${esc(p.id)}" data-sell-asset="${esc(p.sellAsset)}" data-sell-price="${p.sellPrice}" data-sell-qty="${p.sellQty}" data-buy-asset="${esc(p.buyAsset)}" data-buy-price="${p.buyPrice}" data-buy-qty="${p.buyEstimatedQty}" data-sell-zar="${p.estimatedSellZar}">Accept — sell ${esc(p.sellAsset)} first</button>
+        <button type="button" class="secondary-btn rebal-dismiss-btn" data-id="${esc(p.id)}">Dismiss</button>
+      </div>
+    `;
+    el.appendChild(card);
+  }
+}
+
+document.getElementById("rebalancePanel").addEventListener("click", async (evt) => {
+  const acceptBtn = evt.target.closest(".rebal-accept-btn");
+  const dismissBtn = evt.target.closest(".rebal-dismiss-btn");
+  const checkBtn = evt.target.closest("#rebalanceCheckNow");
+  if (acceptBtn) {
+    const { id, sellAsset, sellPrice, sellQty, buyAsset, buyPrice, buyQty, sellZar } = acceptBtn.dataset;
+    const res = await fetch(`/api/luno/bot/rebalance/proposals/${id}/accept`, { method: "POST" });
+    if (!res.ok) { setStatus("Accept failed: " + ((await res.json().catch(() => ({}))).error || res.statusText), true); return; }
+    setSide("sell");
+    document.getElementById("orderPair").value = `${sellAsset}ZAR`;
+    document.getElementById("orderType").value = "limit";
+    document.getElementById("orderPrice").value = "";
+    togglePriceField();
+    document.getElementById("orderPrice").value = Number(sellPrice).toFixed(2);
+    document.getElementById("orderVolume").value = Number(sellQty);
+    document.getElementById("orderPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    await reviewOrder("sell", `${sellAsset}ZAR`, "limit", Number(sellQty), Number(sellPrice));
+    const note = document.createElement("div");
+    note.className = "order-msg";
+    note.style.marginTop = "8px";
+    note.innerHTML = `After confirming the sell, buy <strong class="side-BUY">${esc(buyAsset)}</strong> with the ~${zar(Number(sellZar))} proceeds: set Side to Buy, Pair to ${esc(buyAsset)}ZAR, and enter ~${Number(buyQty).toFixed(6)} as volume at ~${zar(Number(buyPrice))}.`;
+    document.getElementById("orderPanel").appendChild(note);
+    loadRebalanceProposals();
+  } else if (dismissBtn) {
+    const res = await fetch(`/api/luno/bot/rebalance/proposals/${dismissBtn.dataset.id}/dismiss`, { method: "POST" });
+    if (!res.ok) { setStatus("Dismiss failed: " + ((await res.json().catch(() => ({}))).error || res.statusText), true); return; }
+    loadRebalanceProposals();
+  } else if (checkBtn) {
+    checkBtn.disabled = true;
+    checkBtn.textContent = "Checking…";
+    try {
+      const res = await fetch("/api/luno/bot/rebalance/check-now", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      await loadRebalanceProposals();
+    } catch (err) {
+      document.getElementById("rebalanceProposals").innerHTML = `<div class="empty">Check failed: ${esc(err.message)}</div>`;
+    } finally {
+      checkBtn.disabled = false;
+      checkBtn.textContent = "Check now";
+    }
+  }
+});
+
 // ---------- price predictions ----------
 
 // Same solid-history/dashed-projection sparkline convention used on the
@@ -2340,6 +2443,7 @@ async function loadAll() {
     loadSignal();
     loadPredictions(holdings);
     loadAllBotTiers();
+    loadRebalanceProposals();
 
     try {
       const { dates, valueSeries, pctSeries, coinPnlSeries, byAssetCandles } = await buildTrendData(holdings, tradeMarkers, transactions);

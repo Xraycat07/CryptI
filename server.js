@@ -17,7 +17,13 @@ const {
 const { getNews } = require("./news");
 const { placeLimitOrder, placeMarketOrder, cancelOrder, getBalances, getOpenOrders, getTickers, getMarketInfo, getAccountTransactions, getFeeInfo } = require("./luno");
 const { getQuotes, DEFAULT_SYMBOLS } = require("./finnhub");
-const { startBotLoop, checkOnceForTier: runBotCheckOnceForTier, getProposals: getBotProposals, getState: getBotState, getConfig: getBotConfig, getTiers: getBotTiers, setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID } = require("./luno-bot");
+const {
+  startBotLoop, checkOnceForTier: runBotCheckOnceForTier, getProposals: getBotProposals,
+  getState: getBotState, getConfig: getBotConfig, getTiers: getBotTiers,
+  setProposalStatus: setBotProposalStatus, ADMIN_ID: BOT_ADMIN_ID,
+  checkRebalanceForIdentity: runRebalanceCheck, getRebalanceProposals,
+  getRebalanceState, setRebalanceProposalStatus,
+} = require("./luno-bot");
 const { recordRecentHistory: recordRecentLunoHistory, backfillHistoryIfNeeded: backfillLunoHistoryIfNeeded, getMergedHistory: getMergedLunoHistory } = require("./luno-history");
 const { getUsers, findOrCreateUser, getUserById, getUserCredentials, setUserLunoKeys, clearUserLunoKeys } = require("./users");
 
@@ -623,6 +629,52 @@ app.post("/api/luno/bot/:tier/proposals/:id/accept", async (req, res) => {
 app.post("/api/luno/bot/:tier/proposals/:id/dismiss", async (req, res) => {
   try {
     const proposal = await setBotProposalStatus(botIdentityId(req), req.params.tier, req.params.id, "dismissed");
+    res.json({ proposal });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.get("/api/luno/bot/rebalance/proposals", async (req, res) => {
+  try {
+    const identityId = botIdentityId(req);
+    const [proposals, state] = await Promise.all([
+      getRebalanceProposals(identityId),
+      getRebalanceState(identityId),
+    ]);
+    res.json({ proposals, lastCheckedAt: state.lastCheckedAt, ...getBotConfig() });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.post("/api/luno/bot/rebalance/check-now", withLunoCredentials, async (req, res) => {
+  try {
+    const identityId = botIdentityId(req);
+    const email = await botIdentityEmail(req);
+    const added = await runRebalanceCheck(identityId, req.lunoCredentials, email);
+    const [proposals, state] = await Promise.all([
+      getRebalanceProposals(identityId),
+      getRebalanceState(identityId),
+    ]);
+    res.json({ added: added.length, proposals, lastCheckedAt: state.lastCheckedAt });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.post("/api/luno/bot/rebalance/proposals/:id/accept", async (req, res) => {
+  try {
+    const proposal = await setRebalanceProposalStatus(botIdentityId(req), req.params.id, "accepted");
+    res.json({ proposal });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+app.post("/api/luno/bot/rebalance/proposals/:id/dismiss", async (req, res) => {
+  try {
+    const proposal = await setRebalanceProposalStatus(botIdentityId(req), req.params.id, "dismissed");
     res.json({ proposal });
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });

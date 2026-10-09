@@ -21,7 +21,7 @@
 const fs = require("fs/promises");
 const path = require("path");
 const Strategy = require("./public/strategy.js");
-const { getBalances, getTickers, getCandleHistory } = require("./luno");
+const { getBalances, getTickers, getCandleHistory, getFeeInfo } = require("./luno");
 const { getUsers, getUserCredentials } = require("./users");
 const Email = require("./email");
 
@@ -191,6 +191,26 @@ async function getHeldPricedAssets(credentials) {
   return Object.keys(qtyByAsset).filter((asset) => qtyByAsset[asset] > 0 && priceByAsset[asset] != null);
 }
 
+// Richer version for the rebalance bot — returns qty, price and ZAR value
+// per asset so it can filter out dust positions and size the swap.
+async function getHeldPricedAssetsDetailed(credentials) {
+  const [balances, tickers] = await Promise.all([getBalances(credentials), getTickers()]);
+  const priceByAsset = {};
+  for (const t of tickers) {
+    if (t.pair.endsWith("ZAR") && t.pair !== "ZAR") priceByAsset[t.pair.slice(0, -3)] = Number(t.last_trade);
+  }
+  const byAsset = {};
+  for (const b of balances) {
+    const total = Number(b.balance) + Number(b.reserved);
+    if (!byAsset[b.asset]) byAsset[b.asset] = { asset: b.asset, qty: 0, available: 0 };
+    byAsset[b.asset].qty += total;
+    if (b.account_type === "TRANSACTIONAL") byAsset[b.asset].available += total;
+  }
+  return Object.values(byAsset)
+    .filter((h) => h.qty > 0 && priceByAsset[h.asset] != null)
+    .map((h) => ({ ...h, price: priceByAsset[h.asset], valueZar: h.qty * priceByAsset[h.asset] }));
+}
+
 async function checkOnceForTier(identityId, tier, credentials, notifyEmail) {
   assertKnownTier(tier);
   await migrateLegacyFilesOnce();
@@ -255,6 +275,175 @@ async function checkOnceForTier(identityId, tier, credentials, notifyEmail) {
   return added;
 }
 
+// ---------- rebalance bot ----------
+// Compares all held coins' momentum and proposes swapping the weakest
+// (declining) coin into the strongest (rising) coin when the projected
+// gain after round-trip fees is worthwhile. Uses the same indicator +
+// projection engine as the risk-tier bots above, but instead of per-coin
+// buy/sell signals it ranks coins against each other.
+
+const REBALANCE_MIN_NET_GAIN_PCT = 1;
+const REBALANCE_MIN_VALUE_ZAR = 10;
+const REBALANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+function rebalanceDir(identityId) {
+  return path.join(DATA_DIR, identityId, "rebalance");
+}
+function rebalanceProposalsFile(identityId) {
+  return path.join(rebalanceDir(identityId), "proposals.json");
+}
+function rebalanceStateFile(identityId) {
+  return path.join(rebalanceDir(identityId), "state.json");
+}
+
+function scoreAsset(candles) {
+  if (candles.length < 55) return null;
+  const closes = candles.map((c) => c.close);
+  const projected = Strategy.projectForward(closes, 7);
+  const last = closes[closes.length - 1];
+  const projectedPct = ((projected[projected.length - 1] - last) / last) * 100;
+
+  const config = Strategy.DEFAULT_CONFIG;
+  const result = Strategy.runStrategy(candles, config);
+  const lastSignal = result.signals[result.signals.length - 1];
+  const barsAgo = lastSignal ? (candles.length - 1) - lastSignal.index : null;
+  const isFresh = lastSignal && barsAgo <= (config.cooldownBars ?? 5);
+
+  let signalBonus = 0;
+  if (isFresh) signalBonus = lastSignal.side === "buy" ? 3 : -3;
+
+  return {
+    projectedPct,
+    compositeScore: projectedPct + signalBonus,
+    signal: isFresh ? lastSignal.side : null,
+  };
+}
+
+async function checkRebalanceForIdentity(identityId, credentials, notifyEmail) {
+  await migrateLegacyFilesOnce();
+  const saveState = () => saveJson(rebalanceStateFile(identityId), { lastCheckedAt: Date.now() });
+  const holdings = await getHeldPricedAssetsDetailed(credentials);
+  const tradeable = holdings.filter((h) => h.valueZar >= REBALANCE_MIN_VALUE_ZAR && h.available > 0);
+  if (tradeable.length < 2) { await saveState(); return []; }
+
+  const scored = [];
+  for (const h of tradeable) {
+    try {
+      const candles = await getCandleHistory(`${h.asset}ZAR`, { days: SIGNAL_DAYS });
+      const s = scoreAsset(candles);
+      if (s) scored.push({ ...h, ...s });
+    } catch (err) {
+      console.error(`luno-bot(${identityId}/rebalance): score ${h.asset} failed:`, err.message);
+    }
+  }
+  if (scored.length < 2) { await saveState(); return []; }
+
+  scored.sort((a, b) => a.compositeScore - b.compositeScore);
+  const weakest = scored[0];
+  const strongest = scored[scored.length - 1];
+
+  if (strongest.compositeScore <= 0 || weakest.compositeScore >= 0) { await saveState(); return []; }
+  if (strongest.projectedPct - weakest.projectedPct < REBALANCE_MIN_NET_GAIN_PCT) { await saveState(); return []; }
+
+  let sellFeePct, buyFeePct;
+  try {
+    const [sf, bf] = await Promise.all([
+      getFeeInfo(`${weakest.asset}ZAR`, credentials),
+      getFeeInfo(`${strongest.asset}ZAR`, credentials),
+    ]);
+    sellFeePct = Number(sf.taker_fee) * 100;
+    buyFeePct = Number(bf.taker_fee) * 100;
+  } catch {
+    sellFeePct = 1;
+    buyFeePct = 1;
+  }
+  const roundTripFeePct = sellFeePct + buyFeePct;
+  const netGainPct = strongest.projectedPct - weakest.projectedPct - roundTripFeePct;
+
+  if (netGainPct < REBALANCE_MIN_NET_GAIN_PCT) { await saveState(); return []; }
+
+  const proposals = await loadJson(rebalanceProposalsFile(identityId), []);
+  const swapKey = `${weakest.asset}->${strongest.asset}`;
+  const recent = proposals.find((p) => p.swapKey === swapKey && Date.now() - p.createdAt < REBALANCE_COOLDOWN_MS);
+  if (recent) { await saveState(); return []; }
+
+  const estimatedSellZar = weakest.available * weakest.price * (1 - sellFeePct / 100);
+  const estimatedBuyQty = estimatedSellZar / strongest.price;
+
+  const proposal = {
+    id: `rebal-${weakest.asset}-${strongest.asset}-${Date.now()}`,
+    swapKey,
+    sellAsset: weakest.asset,
+    sellPair: `${weakest.asset}ZAR`,
+    sellPrice: weakest.price,
+    sellQty: weakest.available,
+    sellProjectedPct: weakest.projectedPct,
+    sellSignal: weakest.signal,
+    buyAsset: strongest.asset,
+    buyPair: `${strongest.asset}ZAR`,
+    buyPrice: strongest.price,
+    buyEstimatedQty: estimatedBuyQty,
+    buyProjectedPct: strongest.projectedPct,
+    buySignal: strongest.signal,
+    sellFeePct,
+    buyFeePct,
+    roundTripFeePct,
+    netGainPct,
+    estimatedSellZar,
+    createdAt: Date.now(),
+    status: "pending",
+  };
+
+  proposals.push(proposal);
+  await saveJson(rebalanceProposalsFile(identityId), proposals);
+  console.log(`luno-bot(${identityId}/rebalance): proposed ${weakest.asset} → ${strongest.asset} (net +${netGainPct.toFixed(1)}%)`);
+
+  if (notifyEmail) {
+    Email.sendMail({
+      to: notifyEmail,
+      subject: `Rebalance bot: swap ${weakest.asset} → ${strongest.asset}`,
+      text: [
+        `Your rebalance bot suggests swapping ${weakest.asset} into ${strongest.asset}:`,
+        ``,
+        `Sell ${weakest.asset} (projected ${weakest.projectedPct >= 0 ? "+" : ""}${weakest.projectedPct.toFixed(1)}%)`,
+        `Buy  ${strongest.asset} (projected +${strongest.projectedPct.toFixed(1)}%)`,
+        `Round-trip fees: ~${roundTripFeePct.toFixed(2)}%`,
+        `Estimated net gain: +${netGainPct.toFixed(1)}%`,
+        ``,
+        `Review in the Luno tab's Trade page.`,
+      ].join("\n"),
+    }).catch((err) => console.error(`luno-bot(${identityId}/rebalance): email failed:`, err.message));
+  }
+
+  await saveJson(rebalanceStateFile(identityId), { lastCheckedAt: Date.now() });
+  return [proposal];
+}
+
+async function getRebalanceProposals(identityId) {
+  await migrateLegacyFilesOnce();
+  return loadJson(rebalanceProposalsFile(identityId), []);
+}
+
+async function getRebalanceState(identityId) {
+  await migrateLegacyFilesOnce();
+  return loadJson(rebalanceStateFile(identityId), { lastCheckedAt: null });
+}
+
+async function setRebalanceProposalStatus(identityId, id, status) {
+  const file = rebalanceProposalsFile(identityId);
+  const proposals = await loadJson(file, []);
+  const proposal = proposals.find((p) => p.id === id);
+  if (!proposal) {
+    const err = new Error("Proposal not found");
+    err.status = 404;
+    throw err;
+  }
+  proposal.status = status;
+  proposal.resolvedAt = Date.now();
+  await saveJson(file, proposals);
+  return proposal;
+}
+
 // Full sweep across every account × every risk tier — admin (server env
 // credentials) plus every registered user who has saved their own Luno
 // keys. Used by the background interval loop; the "Check now" button
@@ -276,6 +465,11 @@ async function checkOnce() {
       } catch (err) {
         console.error(`luno-bot(${id}/${tier}): check failed:`, err.message);
       }
+    }
+    try {
+      added.push(...(await checkRebalanceForIdentity(id, credentials, email)));
+    } catch (err) {
+      console.error(`luno-bot(${id}/rebalance): check failed:`, err.message);
     }
   }
   return added;
@@ -327,4 +521,5 @@ function startBotLoop() {
 module.exports = {
   startBotLoop, checkOnce, checkOnceForTier, getProposals, getState, getConfig, getTiers,
   setProposalStatus, ADMIN_ID, TIERS,
+  checkRebalanceForIdentity, getRebalanceProposals, getRebalanceState, setRebalanceProposalStatus,
 };
